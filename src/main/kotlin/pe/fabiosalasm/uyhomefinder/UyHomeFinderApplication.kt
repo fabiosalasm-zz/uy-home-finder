@@ -1,24 +1,30 @@
 package pe.fabiosalasm.uyhomefinder
 
-import it.skrape.core.htmlDocument
-import it.skrape.extractIt
-import it.skrape.selects.eachAttribute
 import org.javamoney.moneta.Money
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import javax.money.Monetary
 
-data class MainPage(
-    var links: List<String> = emptyList()
+data class Post(
+    var link: String = "no-link",
+    var hasGPS: Boolean = false,
+    var hasVideo: Boolean = false
 )
 
-data class HousePage(
+data class House(
+    var id: Long = 0,
     var title: String = "no-title",
+    var link: String = "no-link",
+    var address: String = "no-address",
+    var telephone: String = "00000000",
     var price: Money = Money.of(0, Monetary.getCurrency("UYU")),
+    var pictureLinks: List<String> = emptyList(),
+    var geoReference: String? = null,
+    var videoLink: String? = null,
     var department: String = "Montevideo",
     var neighbourhood: String = "Montevideo",
     var description: String = "no-description",
-    var features: List<String> = emptyList(),
+    var features: Map<String, Any> = emptyMap(),
     var warranties: List<String> = emptyList()
 )
 
@@ -27,39 +33,4 @@ class UyHomeFinderApplication
 
 fun main(args: Array<String>) {
     runApplication<UyHomeFinderApplication>(*args)
-
-    val gallitoWebTarget = ScrapingTarget(
-        host = "www.gallito.com.uy",
-        port = 443,
-        path = "/inmuebles/casas/alquiler"
-    ).toScraper()
-
-    val mainPageXPath = "div.img-responsive.aviso-ico-contiene img.img-seva.img-responsive"
-    val eachAttribute = "eachAttribute"
-    val mainPage = gallitoWebTarget.extractIt<MainPage> {
-        htmlDocument {
-            val x = mainPageXPath { findAll { this } }
-            it.links = x.eachAttribute("alt")
-        }
-    }
-
-    val rentalPageTitleXPath = "h1.titulo"
-    val rentalPagePriceXPath = "span.precio"
-    val rentalPageDptXPath = "li.breadcrumb-item"
-
-    mainPage.links.forEach {
-        val rentalPage = gallitoWebTarget.apply {
-            request {
-                url = it
-            }
-        }.extractIt<HousePage> {
-            htmlDocument {
-                it.title = rentalPageTitleXPath { findFirst { text } }
-                it.price = rentalPagePriceXPath { findFirst { text.toMoney() } }
-                it.department = rentalPageDptXPath { findSecondLast { text } }
-                it.neighbourhood = rentalPageDptXPath { findLast { text } }
-            }
-        }
-        println(rentalPage)
-    }
 }
