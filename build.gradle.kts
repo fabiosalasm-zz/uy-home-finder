@@ -25,6 +25,7 @@ repositories {
 }
 
 extra["testcontainersVersion"] = "1.15.1"
+extra["kotestVersion"] = "4.3.2"
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
@@ -38,7 +39,11 @@ dependencies {
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(group = "org.junit.vintage", module = "junit-vintage-engine")
+        exclude(module = "mockito-core")
     }
+
+    // Kotest (only assertions) instead of Hamcrest/AssertJ
+    testImplementation("io.kotest:kotest-assertions-core:${property("kotestVersion")}")
     testImplementation("org.testcontainers:junit-jupiter")
 }
 

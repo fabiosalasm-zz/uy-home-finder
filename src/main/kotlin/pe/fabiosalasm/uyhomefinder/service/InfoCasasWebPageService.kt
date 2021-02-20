@@ -5,6 +5,8 @@ import it.skrape.extract
 import org.springframework.stereotype.Service
 import org.springframework.web.util.UriComponentsBuilder
 import pe.fabiosalasm.uyhomefinder.House
+import pe.fabiosalasm.uyhomefinder.Post
+import pe.fabiosalasm.uyhomefinder.extensions.cloneAndReplace
 import pe.fabiosalasm.uyhomefinder.extensions.toScraperRunner
 import java.net.URL
 
@@ -82,6 +84,10 @@ class InfoCasasWebPageService {
     }
 
     private fun getPosts(url: URL, pages: Int) {
+        val posts = mutableSetOf<Post>()
+        for (page in 1..pages) {
+            url.cloneAndReplace()
+        }
         TODO()
     }
 }
