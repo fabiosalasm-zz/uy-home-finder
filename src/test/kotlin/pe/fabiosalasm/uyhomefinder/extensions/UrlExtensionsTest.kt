@@ -1,4 +1,4 @@
-package pe.fabiosalasm.uyhomefinder
+package pe.fabiosalasm.uyhomefinder.extensions
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
@@ -71,7 +71,4 @@ class UrlExtensionsTest {
             actualResult.toString() shouldBe  "https://localhost:8080/test/random?q=2"
         }
     }
-
-
-
 }

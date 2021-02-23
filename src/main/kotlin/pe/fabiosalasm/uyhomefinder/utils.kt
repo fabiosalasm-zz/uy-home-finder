@@ -1,8 +1,6 @@
 package pe.fabiosalasm.uyhomefinder
 
-import org.javamoney.moneta.Money
 import pe.fabiosalasm.uyhomefinder.extensions.toMoney
-import javax.money.Monetary
 
 fun catalogFeatures(rawFeatures: List<String>): Map<String, Any> {
     val result = mutableMapOf<String, Any>()
@@ -66,36 +64,10 @@ fun catalogFeatures(rawFeatures: List<String>): Map<String, Any> {
 }
 
 fun applyHouseFilters(house: House): Boolean {
-    var isValid = true
-
-    if (house.price.currency == Monetary.getCurrency("UYU")) {
-        isValid = isValid && priceLessThan(Money.of(30_000.00, "UYU"), house)
-    } else if (house.price.currency == Monetary.getCurrency("USD")) {
-        isValid = isValid && priceLessThan(Money.of(1_000.00, "USD"), house)
-    }
-
-    return isValid
-        && squareMetersMoreThan(70, house)
-        && onlySafeNeighbourhoods(house)
+    return onlySafeNeighbourhoods(house)
         && onlyAvailable(house)
         && onlyForFamily(house)
-        && onlyWithPictures(house)
-}
-
-//TODO: maxPrice should come a database? These properties are the same, regardless the web source
-fun priceLessThan(maxPrice: Money, house: House): Boolean {
-    require(maxPrice.currency == house.price.currency)
-    { "House price currency different than upperPrice currency" }
-
-    return house.price.isLessThan(maxPrice)
-}
-
-//TODO: minSquareMeters should come a database? These properties are the same, regardless the web source
-fun squareMetersMoreThan(minSquareMeters: Int, house: House): Boolean {
-    return if (house.features.containsKey("sqMeters")) {
-        val houseSquareMeters = house.features["sqMeters"] as Int
-        houseSquareMeters > minSquareMeters
-    } else true
+        && onlyWithAvailablePictures(house)
 }
 
 //TODO: get info from a database? These properties are the same, regardless the web source
@@ -124,7 +96,7 @@ fun onlyForFamily(house: House): Boolean {
     return !rx.containsMatchIn(house.title)
 }
 
-fun onlyWithPictures(house: House): Boolean {
+fun onlyWithAvailablePictures(house: House): Boolean {
     return house.pictureLinks
         .find { it.contains("img_nodisponible.jpg") }
         .isNullOrEmpty()

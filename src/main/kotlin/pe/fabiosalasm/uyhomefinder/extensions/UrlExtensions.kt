@@ -1,26 +1,12 @@
 package pe.fabiosalasm.uyhomefinder.extensions
 
-import it.skrape.core.Scraper
-import it.skrape.core.fetcher.HttpFetcher
-import it.skrape.core.fetcher.Request
-import it.skrape.skrape
 import org.springframework.web.util.UriComponentsBuilder
 import java.net.URL
 
-fun URL.toScraperRunner(): Scraper<Request> {
-    check(this.protocol == "http" || this.protocol == "https") { "Invalid URL protocol. Expected http(s)" }
-    return skrape(HttpFetcher) {
-        request {
-            url = this@toScraperRunner.toString()
-            followRedirects = true
-        }
-
-        preConfigured
-    }
-}
-
 fun URL.cloneAndReplace(path: String = "", query: String = ""): URL {
-    check(path.startsWith("/")) { "Path should start with /" }
+    if (path.isNotEmpty()) {
+        check(path.startsWith("/")) { "Path should start with /" }
+    }
 
     val originalUrl = UriComponentsBuilder.fromUriString(this.toString()).build()
 

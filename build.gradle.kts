@@ -26,6 +26,8 @@ repositories {
 
 extra["testcontainersVersion"] = "1.15.1"
 extra["kotestVersion"] = "4.3.2"
+extra["jsoupVersion"] = "1.13.1"
+extra["kotlinLoggingVersion"] = "1.12.0"
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
@@ -33,7 +35,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.zalando:jackson-datatype-money:1.2.1")
-    implementation("it.skrape:skrapeit-core:1.0.0-alpha8") //TODO: It's alpha!
+    implementation("org.jsoup:jsoup:${property("jsoupVersion")}")
+    implementation("io.github.microutils:kotlin-logging:${property("kotlinLoggingVersion")}")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
