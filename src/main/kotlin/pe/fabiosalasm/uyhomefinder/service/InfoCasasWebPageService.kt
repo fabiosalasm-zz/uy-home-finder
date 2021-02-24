@@ -1,14 +1,13 @@
 package pe.fabiosalasm.uyhomefinder.service
 
 import mu.KotlinLogging
-import org.jsoup.Jsoup
 import org.springframework.stereotype.Service
 import org.springframework.web.util.UriComponentsBuilder
-import pe.fabiosalasm.uyhomefinder.House
-import pe.fabiosalasm.uyhomefinder.Post
+import pe.fabiosalasm.uyhomefinder.domain.House
+import pe.fabiosalasm.uyhomefinder.domain.Post
 import pe.fabiosalasm.uyhomefinder.extensions.appendPath
 import pe.fabiosalasm.uyhomefinder.extensions.toMoney
-import java.lang.IllegalArgumentException
+import pe.fabiosalasm.uyhomefinder.skraper.SkraperClient
 import java.net.URL
 
 private const val MAIN_PAGE_POST_SELECTOR = "a.holder-link.checkMob"
@@ -22,7 +21,7 @@ private const val RENTAL_PAGE_WARR_SELECTOR = "div#garantias p"
 private const val RENTAL_PAGE_GALLERY_SELECTOR = "div#slickAmpliadas img.imageBig"
 
 @Service
-class InfoCasasWebPageService {
+class InfoCasasWebPageService(private val skraperClient: SkraperClient) {
 
     private companion object {
         val logger = KotlinLogging.logger {}
@@ -51,11 +50,14 @@ class InfoCasasWebPageService {
             .toUri().toURL()
 
         val pages = calculateTotalPages(url)
+        val posts = getPosts(url, pages)
+        logger.info { "Evaluating ${posts.size} posts" }
 
-        return getPosts(url, pages)
+        return posts
             .asSequence()
             .map { post ->
-                val doc = Jsoup.connect(post.link).timeout(30_000).get()!!
+                //TODO: NPE
+                val doc = skraperClient.fetchDocument(post.link)!!
 
                 val id = doc.selectFirst(RENTAL_PAGE_ID_SELECTOR)?.attr("data-id")?.toLong()
                 if (id == null) {
@@ -150,8 +152,8 @@ class InfoCasasWebPageService {
         var lastPageCandidate = 1
 
         while (!lastPageFound) {
-            val doc = Jsoup.connect(url.appendPath("/pagina${lastPageCandidate}").toString())
-                .timeout(30_000).get()!!
+            //TODO: NPE
+            val doc = skraperClient.fetchDocument(url.appendPath("/pagina${lastPageCandidate}").toString())!!
 
             val nextPageLink = doc.selectFirst("a[title='Página Siguiente'].next")
             if (nextPageLink == null) {
@@ -168,12 +170,12 @@ class InfoCasasWebPageService {
 
     private fun getPosts(url: URL, pages: Int): Set<Post> {
         return (1..pages)
-            .map { page ->
-                val doc = Jsoup.connect(url.appendPath("/pagina${page}").toString()).timeout(30_000).get()!!
-                doc.select(MAIN_PAGE_POST_SELECTOR)
-                    .mapNotNull { it.attr("href") }
-                    .filter { !it.startsWith("https") }
-                    .map {
+            .mapNotNull { page ->
+                skraperClient.fetchDocument(url.appendPath("/pagina${page}").toString())
+                    ?.select(MAIN_PAGE_POST_SELECTOR)
+                    ?.mapNotNull { it.attr("href") }
+                    ?.filter { !it.startsWith("https") }
+                    ?.map {
                         val b = UriComponentsBuilder.fromUri(url.toURI())
                         Post(
                             link = b.replacePath(it).build().toUriString(),

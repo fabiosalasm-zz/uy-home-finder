@@ -1,17 +1,17 @@
 package pe.fabiosalasm.uyhomefinder.service
 
 import mu.KotlinLogging
-import org.jsoup.Jsoup
+import org.javamoney.moneta.Money
+import org.jsoup.nodes.Document
 import org.springframework.stereotype.Service
 import org.springframework.web.util.UriComponentsBuilder
-import pe.fabiosalasm.uyhomefinder.House
-import pe.fabiosalasm.uyhomefinder.Post
-import pe.fabiosalasm.uyhomefinder.applyHouseFilters
-import pe.fabiosalasm.uyhomefinder.catalogFeatures
+import pe.fabiosalasm.uyhomefinder.domain.House
+import pe.fabiosalasm.uyhomefinder.domain.Post
 import pe.fabiosalasm.uyhomefinder.extensions.cloneAndReplace
 import pe.fabiosalasm.uyhomefinder.extensions.toMoney
-import java.lang.IllegalArgumentException
+import pe.fabiosalasm.uyhomefinder.skraper.SkraperClient
 import java.net.URL
+import javax.money.Monetary
 import kotlin.math.ceil
 
 private const val MAIN_PAGE_TOTAL_POST_SELECTOR = "li#resultados strong"
@@ -35,10 +35,19 @@ private const val RENTAL_PAGE_GPS_SELECTOR = "div#ubicacion iframe#iframeMapa"
 private const val RENTAL_PAGE_VIDEO_SELECTOR = "div#video iframe#iframe_video"
 
 @Service
-class GallitoWebPageService {
+class GallitoWebPageService(private val skraperClient: SkraperClient) {
 
     private companion object {
         val logger = KotlinLogging.logger {}
+        val validateIfRedirectPage: (Document) -> Boolean = { document ->
+            document
+                .head()
+                .selectFirst("title")
+                ?.text()?.equals("Object moved") ?: false
+        }
+        val getRedirectUrl: (Document) -> String? = { document ->
+            document.selectFirst("h2 a")?.attr("href")
+        }
     }
 
     fun getHousesForRent(): Set<House> {
@@ -62,115 +71,68 @@ class GallitoWebPageService {
             .toUri().toURL()
 
         val pages = calculateTotalPages(url, pageSize)
+        val posts = getPosts(url, pages)
+        logger.info { "Evaluating ${posts.size} posts" }
 
-        return getPosts(url, pages)
+        return posts
             .asSequence()
             .mapNotNull { post ->
-                val doc = Jsoup.connect(post.link).timeout(30_000).get()!!
-
-                val id = doc.selectFirst(RENTAL_PAGE_ID_SELECTOR)?.attr("value")?.toLong()
-                if (id == null) {
-                    logger.warn { "cannot find id in post: ${post.link}" }
-                    null
-                }
-
-                val title = doc.selectFirst(RENTAL_PAGE_TITLE_SELECTOR)?.text()
-                if (title == null) {
-                    logger.warn { "cannot find title in post: ${post.link}" }
-                    null
-                }
-
-                val address = doc.selectFirst(RENTAL_PAGE_ADDRESS_SELECTOR)?.text()
-                if (address == null) {
-                    logger.warn { "cannot find address in post: ${post.link}" }
-                    null
-                }
-
-                val telephone = doc.selectFirst(RENTAL_PAGE_TLF_SELECTOR)?.attr("value")
-                if (telephone == null) {
-                    logger.warn { "cannot find telephone in post: ${post.link}" }
-                    null
-                }
-
-                val price = doc.selectFirst(RENTAL_PAGE_PRICE_SELECTOR)?.text()
-                    ?.let {
-                        when {
-                            it.startsWith("\$U ") -> it.replace("\$U", "UYU")
-                            it.startsWith("U\$S") -> it.replace("U\$S", "USD")
-                            else -> throw IllegalArgumentException("Price expressed as: $it is invalid or unknown")
-                        }
-                    }?.toMoney()
-
-                if (price == null) {
-                    logger.warn { "cannot find/process price in post: ${post.link}" }
-                    null
-                }
-
-                val department = doc.selectFirst(RENTAL_PAGE_DPT_SELECTOR)?.text()
-                if (department == null) {
-                    logger.warn { "cannot find department in post: ${post.link}" }
-                    null
-                }
-
-                val neighbourhood = doc.selectFirst(RENTAL_PAGE_NGH_SELECTOR)?.text()
-                if (neighbourhood == null) {
-                    logger.warn { "cannot find neighbourhood in post: ${post.link}" }
-                    null
-                }
-
-                val description = doc.select(RENTAL_PAGE_DESC_SELECTOR)
-                    .joinToString(" ") { ele ->
-                        ele.text().removeSurrounding(" ")
-                    }.removeSurrounding(" ")
-
-                val rawFeatures = doc.select(RENTAL_PAGE_FEAT_SELECTOR)
-                    .mapNotNull { it.text() }
-                val features = catalogFeatures(rawFeatures)
-
-                val warranties = doc.select(RENTAL_PAGE_WARR_SELECTOR)
-                    .mapNotNull { it.text()?.removeSurrounding(" ") }.toList()
-
-                val pictureLinks = doc.select(RENTAL_PAGE_GALLERY_SELECTOR)
-                    .mapNotNull { it.attr("href") }.toList()
-
-                val geoReference = if (post.hasGPS) {
-                    doc.selectFirst(RENTAL_PAGE_GPS_SELECTOR)
-                        ?.attr("src")
-                        ?.let {
-                            UriComponentsBuilder.fromUriString(it)
-                                .build().queryParams.getFirst("q")
-                        }
-                } else {
-                    null
-                }
-
-                val videoLink = if (post.hasVideo) {
-                    doc.selectFirst(RENTAL_PAGE_VIDEO_SELECTOR)
-                        ?.attr("src")
-                } else {
-                    null
-                }
+                //TODO: NPE
+                val doc = skraperClient.fetchDocument(
+                    url = post.link,
+                    shouldReditect = validateIfRedirectPage,
+                    getRedirectUrl = getRedirectUrl
+                )!!
 
                 House(
-                    id = id!!,
-                    title = title!!,
+                    id = 0, //TODO: This id is linked to database; the one related to webpage is sourceId
+                    sourceId = extractHouseId(doc),
+                    title = extractHouseTitle(doc),
                     link = post.link,
-                    address = address!!,
-                    telephone = telephone!!,
-                    price = price!!,
-                    department = department!!,
-                    neighbourhood = neighbourhood!!,
-                    description = description,
-                    features = features,
-                    warranties = warranties,
-                    pictureLinks = pictureLinks,
-                    geoReference = geoReference,
-                    videoLink = videoLink
+                    address = extractHouseAddress(doc),
+                    telephone = extractHousePhone(doc),
+                    price = extractHousePrice(doc),
+                    department = extractHouseDepartment(doc),
+                    neighbourhood = extractHouseNeighbourhood(doc),
+                    description = extractHouseDescription(doc),
+                    features = catalogFeatures(doc),
+                    warranties = extractHouseWarranties(doc),
+                    pictureLinks = extractHousePicLinks(doc),
+                    geoReference = extractHouseGeoRef(post, doc),
+                    videoLink = extractHouseVideoLink(post, doc)
                 )
             }
-            .filter(::applyHouseFilters)
+            .filter { house ->
+                house.isLocatedInSafeNeighbourhood()
+                    && house.isCloseToCapital()
+                    && house.isAvailableForRental()
+                    && house.isForFamily()
+                    && house.hasAvailablePics()
+            }
             .toSet()
         // TODO: save the details, if not existing
+    }
+
+    private fun extractHouseVideoLink(
+        post: Post,
+        doc: Document
+    ) = when (post.hasVideo) {
+        true -> doc.selectFirst(RENTAL_PAGE_VIDEO_SELECTOR)
+            ?.attr("src")
+        false -> null
+    }
+
+    private fun extractHouseGeoRef(
+        post: Post,
+        doc: Document
+    ) = when (post.hasGPS) {
+        true -> doc.selectFirst(RENTAL_PAGE_GPS_SELECTOR)
+            ?.attr("src")
+            ?.let {
+                UriComponentsBuilder.fromUriString(it)
+                    .build().queryParams.getFirst("q")
+            }
+        false -> null
     }
 
     /**
@@ -184,10 +146,8 @@ class GallitoWebPageService {
      * Fetch the total of posts and divide it with the posts per page (const)
      */
     private fun calculateTotalPages(url: URL, pageSize: Int): Int {
-        val doc = Jsoup.connect(url.toString()).timeout(30_000).get()!!
-
-        val text = doc.select(MAIN_PAGE_TOTAL_POST_SELECTOR)
-            .firstOrNull()
+        val text = skraperClient.fetchDocument(url = url.toString())
+            ?.selectFirst(MAIN_PAGE_TOTAL_POST_SELECTOR)
             ?.text() ?: "de 0"
 
         //TODO: make this code dont assume array size and cast
@@ -198,10 +158,10 @@ class GallitoWebPageService {
 
     private fun getPosts(url: URL, pages: Int): Set<Post> {
         return (1..pages)
-            .map { page ->
-                val doc = Jsoup.connect(url.cloneAndReplace(query = "pag=${page}").toString()).timeout(30_000).get()!!
-                doc.select(MAIN_PAGE_POST_SELECTOR)
-                    .mapNotNull { ele ->
+            .mapNotNull { page ->
+                skraperClient.fetchDocument(url.cloneAndReplace(query = "pag=${page}").toString())
+                    ?.select(MAIN_PAGE_POST_SELECTOR)
+                    ?.mapNotNull { ele ->
                         val link = ele.selectFirst(MAIN_PAGE_POST_LINK_SELECTOR)
                             ?.attr("alt")
 
@@ -217,4 +177,110 @@ class GallitoWebPageService {
             .flatten()
             .toSet()
     }
+
+    private fun catalogFeatures(document: Document): Map<String, Any> {
+        val result = mutableMapOf<String, Any>()
+        val extras = mutableListOf<String>()
+
+        document.select(RENTAL_PAGE_FEAT_SELECTOR)
+            .mapNotNull { it.text() }
+            .forEach { rawFeature ->
+                when {
+                    """Padrón: \w+""".toRegex().containsMatchIn(rawFeature) -> {
+                        result["register"] = rawFeature.removePrefix("Padrón: ")
+                    }
+                    """Estado: \w+""".toRegex().containsMatchIn(rawFeature) -> {
+                        result["buildingState"] = rawFeature.removePrefix("Estado: ")
+                    }
+                    """(\d) (Baño[s]?)""".toRegex().containsMatchIn(rawFeature) -> {
+                        result["numberBathrooms"] = """(\d) (Baño[s]?)""".toRegex().find(rawFeature)!!
+                            .groupValues[1].toInt()
+                    }
+                    rawFeature == "Cocina" -> {
+                        result["hasKitchen"] = true
+                        result["kitchenSize"] = "NORMAL"
+                    }
+
+                    rawFeature == "Kitchenette" -> {
+                        result["hasKitchen"] = true
+                        result["kitchenSize"] = "SMALL"
+                    }
+
+                    """Techo: \w+""".toRegex().containsMatchIn(rawFeature) -> {
+                        result["roofType"] = rawFeature.removePrefix("Techo: ")
+                    }
+                    """(Sup. construida:) (\d{1,5})m²""".toRegex().containsMatchIn(rawFeature) -> {
+                        result["sqMeters"] = """(Sup. construida:) (\d{1,5})m²""".toRegex().find(rawFeature)!!
+                            .groupValues[2].toInt()
+
+                        //TODO: the regex filter is not working as expected?
+                    }
+                    """Gastos Comunes: \$(U\d+)""".toRegex().containsMatchIn(rawFeature) -> {
+                        result["commonExpenses"] = """Gastos Comunes: \$(U\d+)""".toRegex().find(rawFeature)!!
+                            .groupValues[1].replace("U", "UYU ") // polishing string to change to it money
+                            .toMoney()
+                    }
+                    """(Año:) (\d+)""".toRegex().containsMatchIn(rawFeature) -> {
+                        result["constructionYear"] = """(Año:) (\d+)""".toRegex().find(rawFeature)!!
+                            .groupValues[2].toInt()
+                    }
+                    """(Cantidad de plantas:) (\d+)""".toRegex().containsMatchIn(rawFeature) -> {
+                        result["numberFloors"] = """(Cantidad de plantas:) (\d+)""".toRegex().find(rawFeature)!!
+                            .groupValues[2].toInt()
+                    }
+                    else -> {
+                        extras.add(rawFeature)
+                    }
+                }
+            }
+
+        if (extras.isNotEmpty()) {
+            result["extras"] = extras
+        }
+
+        return result
+    }
+
+    private fun extractHousePicLinks(doc: Document) = doc.select(RENTAL_PAGE_GALLERY_SELECTOR)
+        .mapNotNull { it.attr("href") }.toList()
+
+    private fun extractHouseWarranties(doc: Document) = doc.select(RENTAL_PAGE_WARR_SELECTOR)
+        .mapNotNull { it.text()?.removeSurrounding(" ") }.toList()
+
+    private fun extractHouseDescription(doc: Document) = doc.select(RENTAL_PAGE_DESC_SELECTOR)
+        .joinToString(" ") { ele ->
+            ele.text().removeSurrounding(" ")
+        }.removeSurrounding(" ")
+
+    private fun extractHouseNeighbourhood(doc: Document) =
+        doc.selectFirst(RENTAL_PAGE_NGH_SELECTOR)?.text()?.removeSurrounding(" ").orEmpty()
+
+    private fun extractHouseDepartment(doc: Document) =
+        doc.selectFirst(RENTAL_PAGE_DPT_SELECTOR)?.text()?.removeSurrounding(" ").orEmpty()
+
+    private fun extractHousePrice(doc: Document): Money {
+        return doc.selectFirst(RENTAL_PAGE_PRICE_SELECTOR)?.text()?.removeSurrounding(" ")
+            ?.let {
+                when {
+                    it.startsWith("\$U ") -> it.replace("\$U", "UYU")
+                    it.startsWith("U\$S") -> it.replace("U\$S", "USD")
+                    else -> throw IllegalArgumentException("Price expressed as: $it is invalid or unknown")
+                }
+            }?.toMoney() ?: Money.zero(Monetary.getCurrency("UYU"))
+    }
+
+    private fun extractHousePhone(doc: Document) =
+        doc.selectFirst(RENTAL_PAGE_TLF_SELECTOR)?.attr("value")?.removeSurrounding(" ").orEmpty()
+
+    private fun extractHouseAddress(doc: Document) =
+        doc.selectFirst(RENTAL_PAGE_ADDRESS_SELECTOR)?.text()?.removeSurrounding(" ").orEmpty()
+
+    private fun extractHouseTitle(doc: Document) =
+        doc.selectFirst(RENTAL_PAGE_TITLE_SELECTOR)?.text()?.removeSurrounding(" ").orEmpty()
+
+    private fun extractHouseId(doc: Document) =
+        doc.selectFirst(RENTAL_PAGE_ID_SELECTOR)?.attr("value")
+            ?.removeSurrounding(" ")?.let {
+                "GALLITO-$it"
+            }.orEmpty()
 }
