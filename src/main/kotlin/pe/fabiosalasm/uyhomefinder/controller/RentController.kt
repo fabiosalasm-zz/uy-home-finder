@@ -15,7 +15,7 @@ class RentController(
 ) {
 
     @GetMapping("/gallito/houses")
-    fun getGallitoHouses(): Set<House> = gallitoWebPageService.getHousesForRent()
+    fun getGallitoHouses() = gallitoWebPageService.getHousesForRent()
 
     @GetMapping("/infocasas/houses")
     fun getInfoCasasHouses(): Set<House> = infoCasasWebPageService.getHousesForRent()

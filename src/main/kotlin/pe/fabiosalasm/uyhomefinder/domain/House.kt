@@ -2,6 +2,7 @@ package pe.fabiosalasm.uyhomefinder.domain
 
 import com.fasterxml.jackson.annotation.JsonIgnore
 import org.javamoney.moneta.Money
+import java.math.BigDecimal
 import javax.money.Monetary
 
 data class House(
@@ -42,8 +43,23 @@ data class House(
         }
     }
 
+    fun isValid(): Boolean {
+        return this.sourceId.isNotEmpty()
+            && this.title.isNotEmpty()
+            && this.link.isNotEmpty()
+            && this.address.isNotEmpty()
+            && this.telephone.isNotEmpty()
+            && this.price.numberStripped != BigDecimal.ZERO
+            && this.pictureLinks.isNotEmpty()
+            && this.department.isNotEmpty()
+            && this.neighbourhood.isNotEmpty()
+            && this.description.isNotEmpty()
+            && this.features.isNotEmpty()
+            && this.warranties.isNotEmpty()
+    }
+
     @JsonIgnore
-    fun isCloseToCapital(): Boolean {
+    fun isNearByCapital(): Boolean {
         return when (this.department) {
             "Montevideo", "Canelones" -> true
             else -> false

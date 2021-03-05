@@ -4,18 +4,14 @@ services:
     container_name: postgres
     image: postgres:13
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      PGDATA: /data/postgres
-    volumes:
-      - postgres:/data/postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: uy_home_finder
     ports:
-      - "5432:5432"
+      - 5432:5432
     networks:
       - postgres
     restart: unless-stopped
 networks:
   postgres:
     driver: bridge
-volumes:
-  postgres:

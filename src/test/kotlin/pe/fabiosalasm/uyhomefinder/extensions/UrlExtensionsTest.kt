@@ -5,6 +5,7 @@ import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import org.springframework.web.util.UriComponentsBuilder
 import pe.fabiosalasm.uyhomefinder.extensions.appendPath
 import pe.fabiosalasm.uyhomefinder.extensions.cloneAndReplace
 import java.net.URL

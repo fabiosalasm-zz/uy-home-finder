@@ -1,5 +1,7 @@
 package pe.fabiosalasm.uyhomefinder.service
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import mu.KotlinLogging
 import org.springframework.stereotype.Service
 import org.springframework.web.util.UriComponentsBuilder
@@ -7,6 +9,7 @@ import pe.fabiosalasm.uyhomefinder.domain.House
 import pe.fabiosalasm.uyhomefinder.domain.Post
 import pe.fabiosalasm.uyhomefinder.extensions.appendPath
 import pe.fabiosalasm.uyhomefinder.extensions.toMoney
+import pe.fabiosalasm.uyhomefinder.repository.ConfigRepository
 import pe.fabiosalasm.uyhomefinder.skraper.SkraperClient
 import java.net.URL
 
@@ -21,35 +24,32 @@ private const val RENTAL_PAGE_WARR_SELECTOR = "div#garantias p"
 private const val RENTAL_PAGE_GALLERY_SELECTOR = "div#slickAmpliadas img.imageBig"
 
 @Service
-class InfoCasasWebPageService(private val skraperClient: SkraperClient) {
+class InfoCasasWebPageService(
+    private val skraperClient: SkraperClient,
+    private val objectMapper: ObjectMapper,
+    private val configRepository: ConfigRepository
+) {
+
+    private val alias = "infocasas"
 
     private companion object {
         val logger = KotlinLogging.logger {}
     }
 
     fun getHousesForRent(): Set<House> {
-        //TODO: Put these constants in a database
-        val department = "montevideo"
-        val minSquareMeter = 70
-        val maxPrice = 1_000
+        val configRecord = configRepository.getOneByAlias(alias)
+            ?: throw IllegalStateException("configuration doesn't exists for alias: $alias")
 
-        //TODO: the URL involves a department pre-filter, so the whole operation should
-        // be done per department (Montevideo and Canelones only considered for now)
-        val urlTemplate = """
-            https://www.infocasas.com.uy/alquiler/casas/{department}/hasta-{maxPrice}/dolares/m2-desde-{minSquareMeter}/edificados
-        """.trimIndent()
+        val urlTemplate = configRecord.urlTemplate!!
+        val urlParams = objectMapper.readValue<Map<String, Any>>(configRecord.urlTemplateParams!!.data())
 
         val url = UriComponentsBuilder.fromUriString(urlTemplate).build()
-            .expand(
-                mapOf(
-                    "department" to department,
-                    "maxPrice" to maxPrice,
-                    "minSquareMeter" to minSquareMeter
-                )
-            )
+            .expand(urlParams)
             .toUri().toURL()
 
         val pages = calculateTotalPages(url)
+        logger.info { "The search returned $pages pages" }
+
         val posts = getPosts(url, pages)
         logger.info { "Evaluating ${posts.size} posts" }
 

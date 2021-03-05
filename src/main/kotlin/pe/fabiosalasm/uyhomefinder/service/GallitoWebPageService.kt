@@ -1,5 +1,7 @@
 package pe.fabiosalasm.uyhomefinder.service
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import mu.KotlinLogging
 import org.javamoney.moneta.Money
 import org.jsoup.nodes.Document
@@ -9,6 +11,8 @@ import pe.fabiosalasm.uyhomefinder.domain.House
 import pe.fabiosalasm.uyhomefinder.domain.Post
 import pe.fabiosalasm.uyhomefinder.extensions.cloneAndReplace
 import pe.fabiosalasm.uyhomefinder.extensions.toMoney
+import pe.fabiosalasm.uyhomefinder.repository.ConfigRepository
+import pe.fabiosalasm.uyhomefinder.repository.HouseCandidateRepository
 import pe.fabiosalasm.uyhomefinder.skraper.SkraperClient
 import java.net.URL
 import javax.money.Monetary
@@ -35,7 +39,14 @@ private const val RENTAL_PAGE_GPS_SELECTOR = "div#ubicacion iframe#iframeMapa"
 private const val RENTAL_PAGE_VIDEO_SELECTOR = "div#video iframe#iframe_video"
 
 @Service
-class GallitoWebPageService(private val skraperClient: SkraperClient) {
+class GallitoWebPageService(
+    private val skraperClient: SkraperClient,
+    private val objectMapper: ObjectMapper,
+    private val configRepository: ConfigRepository,
+    private val houseCandidateRepository: HouseCandidateRepository
+) {
+
+    private val alias = "gallito"
 
     private companion object {
         val logger = KotlinLogging.logger {}
@@ -50,31 +61,24 @@ class GallitoWebPageService(private val skraperClient: SkraperClient) {
         }
     }
 
-    fun getHousesForRent(): Set<House> {
-        //TODO: Put these constants in a database
-        val minSquareMeter = 75
-        val maxPrice = 1_000
-        val pageSize = 80
+    fun getHousesForRent() {
+        val configRecord = configRepository.getOneByAlias(alias)
+            ?: throw IllegalStateException("configuration doesn't exists for alias: $alias")
 
-        val urlTemplate = """
-            https://www.gallito.com.uy/inmuebles/casas/alquiler/pre-0-{maxPrice}-dolares/sup-{minSquareMeter}-500-metros!cant={size}
-        """.trimIndent()
+        val urlTemplate = configRecord.urlTemplate!!
+        val urlParams = objectMapper.readValue<Map<String, Any>>(configRecord.urlTemplateParams!!.data())
 
         val url = UriComponentsBuilder.fromUriString(urlTemplate).build()
-            .expand(
-                mapOf(
-                    "maxPrice" to maxPrice,
-                    "minSquareMeter" to minSquareMeter,
-                    "size" to pageSize
-                )
-            )
+            .expand(urlParams)
             .toUri().toURL()
 
-        val pages = calculateTotalPages(url, pageSize)
-        val posts = getPosts(url, pages)
-        logger.info { "Evaluating ${posts.size} posts" }
+        val pages = calculateTotalPages(url, urlParams)
+        logger.info { "The search returned $pages pages" }
 
-        return posts
+        val posts = getPosts(url, pages)
+        logger.info { "Found ${posts.size} posts in all pages. Evaluating the posts..." }
+
+        posts
             .asSequence()
             .mapNotNull { post ->
                 //TODO: NPE
@@ -85,7 +89,6 @@ class GallitoWebPageService(private val skraperClient: SkraperClient) {
                 )!!
 
                 House(
-                    id = 0, //TODO: This id is linked to database; the one related to webpage is sourceId
                     sourceId = extractHouseId(doc),
                     title = extractHouseTitle(doc),
                     link = post.link,
@@ -102,17 +105,23 @@ class GallitoWebPageService(private val skraperClient: SkraperClient) {
                     videoLink = extractHouseVideoLink(post, doc)
                 )
             }
+            .filter { house -> house.isValid() }
+            .partition {
+
+            }
             .filter { house ->
                 house.isLocatedInSafeNeighbourhood()
-                    && house.isCloseToCapital()
+                    && house.isNearByCapital()
                     && house.isAvailableForRental()
                     && house.isForFamily()
                     && house.hasAvailablePics()
             }
-            .toSet()
-        // TODO: save the details, if not existing
+            .forEach { house ->
+                houseCandidateRepository.save(house)
+            }
     }
 
+    //TODO: Extract when logic
     private fun extractHouseVideoLink(
         post: Post,
         doc: Document
@@ -122,6 +131,7 @@ class GallitoWebPageService(private val skraperClient: SkraperClient) {
         false -> null
     }
 
+    //TODO: Extract when logic
     private fun extractHouseGeoRef(
         post: Post,
         doc: Document
@@ -145,7 +155,8 @@ class GallitoWebPageService(private val skraperClient: SkraperClient) {
      * Objective:
      * Fetch the total of posts and divide it with the posts per page (const)
      */
-    private fun calculateTotalPages(url: URL, pageSize: Int): Int {
+    private fun calculateTotalPages(url: URL, urlParams: Map<String, Any>?): Int {
+        val pageSize = urlParams?.getOrDefault("pageSize", 80) as Int
         val text = skraperClient.fetchDocument(url = url.toString())
             ?.selectFirst(MAIN_PAGE_TOTAL_POST_SELECTOR)
             ?.text() ?: "de 0"
@@ -281,6 +292,6 @@ class GallitoWebPageService(private val skraperClient: SkraperClient) {
     private fun extractHouseId(doc: Document) =
         doc.selectFirst(RENTAL_PAGE_ID_SELECTOR)?.attr("value")
             ?.removeSurrounding(" ")?.let {
-                "GALLITO-$it"
+                "$alias-$it"
             }.orEmpty()
 }

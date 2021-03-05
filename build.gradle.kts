@@ -4,10 +4,11 @@ val compileKotlin: KotlinCompile by tasks
 compileKotlin.kotlinOptions.useIR = true
 
 plugins {
-    id("org.springframework.boot") version "2.3.7.RELEASE"
-    id("io.spring.dependency-management") version "1.0.10.RELEASE"
-    kotlin("jvm") version "1.3.72"
-    kotlin("plugin.spring") version "1.3.72"
+    id("org.springframework.boot") version "2.4.3"
+    id("io.spring.dependency-management") version "1.0.11.RELEASE"
+    id("nu.studer.jooq") version "5.2.1"
+    kotlin("jvm") version "1.4.30"
+    kotlin("plugin.spring") version "1.4.30"
 }
 
 group = "pe.fabiosalasm"
@@ -29,11 +30,22 @@ extra["kotestVersion"] = "4.3.2"
 extra["jsoupVersion"] = "1.13.1"
 extra["kotlinLoggingVersion"] = "1.12.0"
 
+dependencyManagement {
+    imports {
+        mavenBom("org.testcontainers:testcontainers-bom:${property("testcontainersVersion")}")
+    }
+}
+
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
+    
+    runtimeOnly("org.postgresql:postgresql")
+    jooqGenerator("org.postgresql:postgresql:${dependencyManagement.importedProperties["postgresql.version"]}")
+
+    implementation("org.springframework.boot:spring-boot-starter-jooq")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.zalando:jackson-datatype-money:1.2.1")
     implementation("org.jsoup:jsoup:${property("jsoupVersion")}")
@@ -51,10 +63,38 @@ dependencies {
     testImplementation("org.testcontainers:junit-jupiter")
 }
 
-dependencyManagement {
-    imports {
-        mavenBom("org.testcontainers:testcontainers-bom:${property("testcontainersVersion")}")
+jooq {
+    version.set(dependencyManagement.importedProperties["jooq.version"])
+    edition.set(nu.studer.gradle.jooq.JooqEdition.OSS)
+
+    configurations {
+        create("main") {
+            jooqConfiguration.apply {
+                generateSchemaSourceOnCompilation.set(false)
+                logging = org.jooq.meta.jaxb.Logging.WARN
+                jdbc.apply {
+                    driver = "org.postgresql.Driver"
+                    url = "jdbc:postgresql://localhost:5432/uy_home_finder"
+                    user = "postgres"
+                    password = "changeme"
+                }
+                generator.apply {
+                    name = "org.jooq.codegen.KotlinGenerator"
+                    database.apply {
+                        name = "org.jooq.meta.postgres.PostgresDatabase"
+                        inputSchema = "public"
+                    }
+                    target.apply {
+                        packageName = "pe.fabiosalasm.uyhomefinder.jooq"
+                    }
+                }
+            }
+        }
     }
+}
+
+sourceSets.main {
+    java.srcDirs("src/main/kotlin", "build/generated-src/jooq/main")
 }
 
 tasks.withType<KotlinCompile> {
