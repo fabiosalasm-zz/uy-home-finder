@@ -25,14 +25,17 @@ repositories {
     mavenCentral()
 }
 
+extra["springCloudVersion"]  = "2020.0.1"
 extra["testcontainersVersion"] = "1.15.1"
 extra["kotestVersion"] = "4.3.2"
 extra["jsoupVersion"] = "1.13.1"
+extra["datasourceDecoratorVersion"] = "1.6.3"
 extra["kotlinLoggingVersion"] = "1.12.0"
 
 dependencyManagement {
     imports {
         mavenBom("org.testcontainers:testcontainers-bom:${property("testcontainersVersion")}")
+        mavenBom("org.springframework.cloud:spring-cloud-dependencies:${property("springCloudVersion")}")
     }
 }
 
@@ -41,11 +44,13 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
-    
+
     runtimeOnly("org.postgresql:postgresql")
     jooqGenerator("org.postgresql:postgresql:${dependencyManagement.importedProperties["postgresql.version"]}")
-
     implementation("org.springframework.boot:spring-boot-starter-jooq")
+
+    implementation("com.github.gavlyukovskiy:datasource-proxy-spring-boot-starter:${property("datasourceDecoratorVersion")}")
+
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.zalando:jackson-datatype-money:1.2.1")
     implementation("org.jsoup:jsoup:${property("jsoupVersion")}")

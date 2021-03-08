@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service
 import org.springframework.web.util.UriComponentsBuilder
 import pe.fabiosalasm.uyhomefinder.domain.House
 import pe.fabiosalasm.uyhomefinder.domain.Post
+import pe.fabiosalasm.uyhomefinder.domain.StoreMode
 import pe.fabiosalasm.uyhomefinder.extensions.cloneAndReplace
 import pe.fabiosalasm.uyhomefinder.extensions.toMoney
 import pe.fabiosalasm.uyhomefinder.repository.ConfigRepository
@@ -28,8 +29,8 @@ private const val RENTAL_PAGE_TITLE_SELECTOR = "div#div_datosBasicos h1.titulo"
 private const val RENTAL_PAGE_ADDRESS_SELECTOR = "div#div_datosBasicos h2.direccion"
 private const val RENTAL_PAGE_TLF_SELECTOR = "input#HfTelefono"
 private const val RENTAL_PAGE_PRICE_SELECTOR = "div#div_datosBasicos div.wrapperFavorito span.precio"
-private const val RENTAL_PAGE_DPT_SELECTOR = "nav.breadcrumb-w100 li.breadcrumb-item:nth-child(5)"
-private const val RENTAL_PAGE_NGH_SELECTOR = "nav.breadcrumb-w100 li.breadcrumb-item:nth-child(6)"
+private const val RENTAL_PAGE_DPT_SELECTOR = "nav.breadcrumb-w100 li.breadcrumb-item:nth-child(5) a"
+private const val RENTAL_PAGE_NGH_SELECTOR = "nav.breadcrumb-w100 li.breadcrumb-item:nth-child(6) a"
 private const val RENTAL_PAGE_DESC_SELECTOR = "section#descripcion div.p-3 p"
 private const val RENTAL_PAGE_FEAT_SELECTOR =
     "section#caracteristicas div.p-3 ul#ul_caracteristicas li.list-group-item.border-0"
@@ -54,7 +55,7 @@ class GallitoWebPageService(
             document
                 .head()
                 .selectFirst("title")
-                ?.text()?.equals("Object moved") ?: false
+                ?.ownText()?.equals("Object moved") ?: false
         }
         val getRedirectUrl: (Document) -> String? = { document ->
             document.selectFirst("h2 a")?.attr("href")
@@ -66,7 +67,9 @@ class GallitoWebPageService(
             ?: throw IllegalStateException("configuration doesn't exists for alias: $alias")
 
         val urlTemplate = configRecord.urlTemplate!!
-        val urlParams = objectMapper.readValue<Map<String, Any>>(configRecord.urlTemplateParams!!.data())
+        val urlParams = configRecord.urlTemplateParams?.let {
+            objectMapper.readValue<Map<String, Any>>(it.data())
+        } ?: throw IllegalStateException("url template params should exists for alias: $alias")
 
         val url = UriComponentsBuilder.fromUriString(urlTemplate).build()
             .expand(urlParams)
@@ -76,9 +79,9 @@ class GallitoWebPageService(
         logger.info { "The search returned $pages pages" }
 
         val posts = getPosts(url, pages)
-        logger.info { "Found ${posts.size} posts in all pages. Evaluating the posts..." }
+        logger.info { "Found ${posts.size} posts in all pages" }
 
-        posts
+        val houses = posts
             .asSequence()
             .mapNotNull { post ->
                 //TODO: NPE
@@ -102,23 +105,22 @@ class GallitoWebPageService(
                     warranties = extractHouseWarranties(doc),
                     pictureLinks = extractHousePicLinks(doc),
                     geoReference = extractHouseGeoRef(post, doc),
-                    videoLink = extractHouseVideoLink(post, doc)
+                    videoLink = extractHouseVideoLink(post, doc),
+                    storeMode = StoreMode.AUTOMATIC
                 )
             }
-            .filter { house -> house.isValid() }
-            .partition {
-
-            }
             .filter { house ->
-                house.isLocatedInSafeNeighbourhood()
+                house.isValid()
+                    && house.isLocatedInSafeNeighbourhood()
                     && house.isNearByCapital()
                     && house.isAvailableForRental()
                     && house.isForFamily()
                     && house.hasAvailablePics()
             }
-            .forEach { house ->
-                houseCandidateRepository.save(house)
-            }
+            .toSet()
+        logger.info { "Got ${houses.size} house candidates after filtering posts" }
+
+        houseCandidateRepository.cleanAndSave(alias, houses)
     }
 
     //TODO: Extract when logic
@@ -159,7 +161,7 @@ class GallitoWebPageService(
         val pageSize = urlParams?.getOrDefault("pageSize", 80) as Int
         val text = skraperClient.fetchDocument(url = url.toString())
             ?.selectFirst(MAIN_PAGE_TOTAL_POST_SELECTOR)
-            ?.text() ?: "de 0"
+            ?.ownText() ?: "de 0"
 
         //TODO: make this code dont assume array size and cast
         val count = text.split(" ")[1].toDouble()
@@ -194,7 +196,7 @@ class GallitoWebPageService(
         val extras = mutableListOf<String>()
 
         document.select(RENTAL_PAGE_FEAT_SELECTOR)
-            .mapNotNull { it.text() }
+            .mapNotNull { it.ownText() }
             .forEach { rawFeature ->
                 when {
                     """Padrón: \w+""".toRegex().containsMatchIn(rawFeature) -> {
@@ -221,7 +223,7 @@ class GallitoWebPageService(
                         result["roofType"] = rawFeature.removePrefix("Techo: ")
                     }
                     """(Sup. construida:) (\d{1,5})m²""".toRegex().containsMatchIn(rawFeature) -> {
-                        result["sqMeters"] = """(Sup. construida:) (\d{1,5})m²""".toRegex().find(rawFeature)!!
+                        result["totalSqMeters"] = """(Sup. construida:) (\d{1,5})m²""".toRegex().find(rawFeature)!!
                             .groupValues[2].toInt()
 
                         //TODO: the regex filter is not working as expected?
@@ -256,21 +258,21 @@ class GallitoWebPageService(
         .mapNotNull { it.attr("href") }.toList()
 
     private fun extractHouseWarranties(doc: Document) = doc.select(RENTAL_PAGE_WARR_SELECTOR)
-        .mapNotNull { it.text()?.removeSurrounding(" ") }.toList()
+        .mapNotNull { it.ownText()?.removeSurrounding(" ") }.toList()
 
     private fun extractHouseDescription(doc: Document) = doc.select(RENTAL_PAGE_DESC_SELECTOR)
         .joinToString(" ") { ele ->
-            ele.text().removeSurrounding(" ")
+            ele.ownText().removeSurrounding(" ")
         }.removeSurrounding(" ")
 
     private fun extractHouseNeighbourhood(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_NGH_SELECTOR)?.text()?.removeSurrounding(" ").orEmpty()
+        doc.selectFirst(RENTAL_PAGE_NGH_SELECTOR)?.ownText()?.removeSurrounding(" ").orEmpty()
 
     private fun extractHouseDepartment(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_DPT_SELECTOR)?.text()?.removeSurrounding(" ").orEmpty()
+        doc.selectFirst(RENTAL_PAGE_DPT_SELECTOR)?.ownText()?.removeSurrounding(" ").orEmpty()
 
     private fun extractHousePrice(doc: Document): Money {
-        return doc.selectFirst(RENTAL_PAGE_PRICE_SELECTOR)?.text()?.removeSurrounding(" ")
+        return doc.selectFirst(RENTAL_PAGE_PRICE_SELECTOR)?.ownText()?.removeSurrounding(" ")
             ?.let {
                 when {
                     it.startsWith("\$U ") -> it.replace("\$U", "UYU")
@@ -284,10 +286,10 @@ class GallitoWebPageService(
         doc.selectFirst(RENTAL_PAGE_TLF_SELECTOR)?.attr("value")?.removeSurrounding(" ").orEmpty()
 
     private fun extractHouseAddress(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_ADDRESS_SELECTOR)?.text()?.removeSurrounding(" ").orEmpty()
+        doc.selectFirst(RENTAL_PAGE_ADDRESS_SELECTOR)?.ownText()?.removeSurrounding(" ").orEmpty()
 
     private fun extractHouseTitle(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_TITLE_SELECTOR)?.text()?.removeSurrounding(" ").orEmpty()
+        doc.selectFirst(RENTAL_PAGE_TITLE_SELECTOR)?.ownText()?.removeSurrounding(" ").orEmpty()
 
     private fun extractHouseId(doc: Document) =
         doc.selectFirst(RENTAL_PAGE_ID_SELECTOR)?.attr("value")

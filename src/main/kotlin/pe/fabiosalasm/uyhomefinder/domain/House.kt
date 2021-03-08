@@ -5,8 +5,11 @@ import org.javamoney.moneta.Money
 import java.math.BigDecimal
 import javax.money.Monetary
 
+enum class StoreMode {
+    MANUAL, AUTOMATIC
+}
+
 data class House(
-    var id: Long = 0,
     var sourceId: String = "",
     var title: String = "",
     var link: String = "",
@@ -20,7 +23,8 @@ data class House(
     var neighbourhood: String = "",
     var description: String = "",
     var features: Map<String, Any> = emptyMap(),
-    var warranties: List<String> = emptyList()
+    var warranties: List<String> = emptyList(),
+    var storeMode: StoreMode
 ) {
 
     @JsonIgnore
@@ -43,6 +47,7 @@ data class House(
         }
     }
 
+    @JsonIgnore
     fun isValid(): Boolean {
         return this.sourceId.isNotEmpty()
             && this.title.isNotEmpty()

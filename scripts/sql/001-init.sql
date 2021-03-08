@@ -13,12 +13,11 @@ ALTER TABLE web_config OWNER TO postgres;
 CREATE UNIQUE INDEX web_config_alias_uindex
     ON web_config (alias);
 
+CREATE TYPE store_mode AS ENUM ('MANUAL', 'AUTOMATIC');
+
 CREATE TABLE house_candidate
 (
-    id serial not null
-        constraint house_candidate_pk
-            primary key,
-    source_id varchar not null,
+    source_id varchar not null primary key,
     title varchar not null,
     link varchar not null,
     address varchar not null,
@@ -31,7 +30,8 @@ CREATE TABLE house_candidate
     "warranties" varchar[],
     "pictureLinks" varchar[] not null,
     "geoReference" varchar[],
-    "videoLink" varchar
+    "videoLink" varchar,
+    "store_mode" store_mode not null default 'AUTOMATIC'::store_mode
 );
 
 ALTER TABLE house_candidate OWNER TO postgres;
