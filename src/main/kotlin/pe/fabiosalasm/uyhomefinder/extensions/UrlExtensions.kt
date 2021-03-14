@@ -1,7 +1,18 @@
 package pe.fabiosalasm.uyhomefinder.extensions
 
 import org.springframework.web.util.UriComponentsBuilder
+import org.springframework.web.util.UriUtils
 import java.net.URL
+import java.net.URLEncoder
+
+fun URL.withEncodedPath(): URL {
+    val encodedPath = UriUtils.encodePath(this.path, Charsets.UTF_8)
+    return this.cloneAndReplace(encodedPath)
+}
+
+fun URL.replace(oldValue: String, newValue: String): URL {
+    return URL(this.toString().replace(oldValue, newValue))
+}
 
 fun URL.cloneAndReplace(path: String = "", query: String = ""): URL {
     if (path.isNotEmpty()) {

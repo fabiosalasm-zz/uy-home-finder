@@ -8,7 +8,9 @@ plugins {
     id("io.spring.dependency-management") version "1.0.11.RELEASE"
     id("nu.studer.jooq") version "5.2.1"
     kotlin("jvm") version "1.4.30"
+    kotlin("kapt") version "1.4.30"
     kotlin("plugin.spring") version "1.4.30"
+    kotlin("plugin.serialization") version "1.4.30"
 }
 
 group = "pe.fabiosalasm"
@@ -44,16 +46,18 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
+    kapt("org.springframework.boot:spring-boot-configuration-processor")
 
     runtimeOnly("org.postgresql:postgresql")
     jooqGenerator("org.postgresql:postgresql:${dependencyManagement.importedProperties["postgresql.version"]}")
     implementation("org.springframework.boot:spring-boot-starter-jooq")
-
     implementation("com.github.gavlyukovskiy:datasource-proxy-spring-boot-starter:${property("datasourceDecoratorVersion")}")
 
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.1.0")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
-    implementation("org.zalando:jackson-datatype-money:1.2.1")
+    implementation("org.javamoney.moneta:moneta-core:1.4.2")
     implementation("org.jsoup:jsoup:${property("jsoupVersion")}")
+
     implementation("io.github.microutils:kotlin-logging:${property("kotlinLoggingVersion")}")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")

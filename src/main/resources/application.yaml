@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: uy-home-finder
+  datasource:
+    url: jdbc:postgresql://localhost:5432/uy_home_finder
+    username: postgres
+    password: changeme
+  jooq:
+    sql-dialect: postgres
+logging:
+  level:
+    org.javamoney: OFF
+    com.gargoylesoftware.htmlunit: DEBUG
+decorator:
+  datasource:
+    datasource-proxy:
+      query:
+        enable-logging: true
+        log-level: info
+        logger-name: SQL-QUERY
+app:
+  skrapers:
+    gallito:
+      url-template: "https://www.gallito.com.uy/inmuebles/casas/alquiler/pre-{minPrice}-{maxPrice}-dolares/sup-{minSquareMeter}-500-metros!cant={pageSize}"
+      url-params:
+        minPrice: 400
+        maxPrice: 1000
+        pageSize: 80
+        minSquareMeter: 75
+    infocasas:
+      url-template: "https://www.infocasas.com.uy/alquiler/casas/{department}/desde-{minPrice}/hasta-{maxPrice}/dolares/m2-desde-{minSquareMeter}/edificados"
+      url-params:
+        minPrice: 400
+        maxPrice: 1000
+        department: ["montevideo", "canelones"]
+        minSquareMeter: 75
+    mercadolibre:
+      url-template: "https://listado.mercadolibre.com.uy/inmuebles/casas/alquiler/{department}/_PriceRange_{minPrice}UYU-{maxPrice}UYU_TOTAL*AREA_{minSquareMeter}m²-*"
+      url-params:
+        department: ["montevideo"] # TODO: ADD canelones
+        minPrice: 18000
+        maxPrice: 35000
+        minSquareMeter: 75
+

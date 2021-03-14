@@ -7,7 +7,7 @@ import pe.fabiosalasm.uyhomefinder.jooq.tables.records.HouseCandidateRecord
 
 fun HouseCandidate.newRecord(house: House): HouseCandidateRecord {
     return this.newRecord().apply {
-        sourceId = house.sourceId
+        sourceId = "${house.source}-${house.id}"
         title = house.title
         link = house.link
         address = house.address
@@ -18,7 +18,8 @@ fun HouseCandidate.newRecord(house: House): HouseCandidateRecord {
         description = house.description
         warranties = house.warranties.toTypedArray()
         picturelinks = house.pictureLinks.toTypedArray()
-        georeference = house.geoReference?.split(",")?.toTypedArray()
+        latitude = house.location?.latitude
+        longitude = house.location?.longitude
         videolink = house.videoLink
         storeMode = StoreMode.valueOf(house.storeMode.name)
     }

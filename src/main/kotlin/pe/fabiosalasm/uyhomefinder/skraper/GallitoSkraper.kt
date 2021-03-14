@@ -1,20 +1,16 @@
-package pe.fabiosalasm.uyhomefinder.service
+package pe.fabiosalasm.uyhomefinder.skraper
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
 import mu.KotlinLogging
 import org.javamoney.moneta.Money
 import org.jsoup.nodes.Document
-import org.springframework.stereotype.Service
 import org.springframework.web.util.UriComponentsBuilder
 import pe.fabiosalasm.uyhomefinder.domain.House
+import pe.fabiosalasm.uyhomefinder.domain.Point
 import pe.fabiosalasm.uyhomefinder.domain.Post
 import pe.fabiosalasm.uyhomefinder.domain.StoreMode
 import pe.fabiosalasm.uyhomefinder.extensions.cloneAndReplace
 import pe.fabiosalasm.uyhomefinder.extensions.toMoney
-import pe.fabiosalasm.uyhomefinder.repository.ConfigRepository
-import pe.fabiosalasm.uyhomefinder.repository.HouseCandidateRepository
-import pe.fabiosalasm.uyhomefinder.skraper.SkraperClient
+import pe.fabiosalasm.uyhomefinder.extensions.withEncodedPath
 import java.net.URL
 import javax.money.Monetary
 import kotlin.math.ceil
@@ -39,15 +35,11 @@ private const val RENTAL_PAGE_GALLERY_SELECTOR = "div#galeria div.carousel-item.
 private const val RENTAL_PAGE_GPS_SELECTOR = "div#ubicacion iframe#iframeMapa"
 private const val RENTAL_PAGE_VIDEO_SELECTOR = "div#video iframe#iframe_video"
 
-@Service
-class GallitoWebPageService(
-    private val skraperClient: SkraperClient,
-    private val objectMapper: ObjectMapper,
-    private val configRepository: ConfigRepository,
-    private val houseCandidateRepository: HouseCandidateRepository
-) {
-
-    private val alias = "gallito"
+class GallitoSkraper(
+    override val urlTemplate: URL,
+    override val urlParams: Map<String, Any>?,
+    override val client: SkraperClient
+) : Skraper {
 
     private companion object {
         val logger = KotlinLogging.logger {}
@@ -62,37 +54,32 @@ class GallitoWebPageService(
         }
     }
 
-    fun getHousesForRent() {
-        val configRecord = configRepository.getOneByAlias(alias)
-            ?: throw IllegalStateException("configuration doesn't exists for alias: $alias")
-
-        val urlTemplate = configRecord.urlTemplate!!
-        val urlParams = configRecord.urlTemplateParams?.let {
-            objectMapper.readValue<Map<String, Any>>(it.data())
-        } ?: throw IllegalStateException("url template params should exists for alias: $alias")
-
-        val url = UriComponentsBuilder.fromUriString(urlTemplate).build()
-            .expand(urlParams)
+    override fun fetchHousesForRental(): Set<House> {
+        val url = UriComponentsBuilder.fromUriString(urlTemplate.toString()).build()
+            .expand(urlParams!!)
             .toUri().toURL()
 
+        logger.info { "Searching houses for rental: (host: ${url.host}, url: $url)" }
+
         val pages = calculateTotalPages(url, urlParams)
-        logger.info { "The search returned $pages pages" }
+        logger.info { "Pages to cover: $pages" }
 
         val posts = getPosts(url, pages)
-        logger.info { "Found ${posts.size} posts in all pages" }
+        logger.info { "Posts to analyze: ${posts.size}" }
 
-        val houses = posts
+        return posts
             .asSequence()
             .mapNotNull { post ->
                 //TODO: NPE
-                val doc = skraperClient.fetchDocument(
+                val doc = client.fetchDocument(
                     url = post.link,
                     shouldReditect = validateIfRedirectPage,
                     getRedirectUrl = getRedirectUrl
                 )!!
 
                 House(
-                    sourceId = extractHouseId(doc),
+                    id = extractHouseId(doc),
+                    source = name,
                     title = extractHouseTitle(doc),
                     link = post.link,
                     address = extractHouseAddress(doc),
@@ -104,8 +91,14 @@ class GallitoWebPageService(
                     features = catalogFeatures(doc),
                     warranties = extractHouseWarranties(doc),
                     pictureLinks = extractHousePicLinks(doc),
-                    geoReference = extractHouseGeoRef(post, doc),
-                    videoLink = extractHouseVideoLink(post, doc),
+                    location = when (post.hasGPS) {
+                        true -> extractHouseLocation(doc)
+                        false -> null
+                    },
+                    videoLink = when (post.hasVideo) {
+                        true -> extractHouseVideoLink(doc)
+                        false -> null
+                    },
                     storeMode = StoreMode.AUTOMATIC
                 )
             }
@@ -114,37 +107,11 @@ class GallitoWebPageService(
                     && house.isLocatedInSafeNeighbourhood()
                     && house.isNearByCapital()
                     && house.isAvailableForRental()
+                    && house.allowsPets()
                     && house.isForFamily()
                     && house.hasAvailablePics()
             }
             .toSet()
-        logger.info { "Got ${houses.size} house candidates after filtering posts" }
-
-        houseCandidateRepository.cleanAndSave(alias, houses)
-    }
-
-    //TODO: Extract when logic
-    private fun extractHouseVideoLink(
-        post: Post,
-        doc: Document
-    ) = when (post.hasVideo) {
-        true -> doc.selectFirst(RENTAL_PAGE_VIDEO_SELECTOR)
-            ?.attr("src")
-        false -> null
-    }
-
-    //TODO: Extract when logic
-    private fun extractHouseGeoRef(
-        post: Post,
-        doc: Document
-    ) = when (post.hasGPS) {
-        true -> doc.selectFirst(RENTAL_PAGE_GPS_SELECTOR)
-            ?.attr("src")
-            ?.let {
-                UriComponentsBuilder.fromUriString(it)
-                    .build().queryParams.getFirst("q")
-            }
-        false -> null
     }
 
     /**
@@ -159,7 +126,7 @@ class GallitoWebPageService(
      */
     private fun calculateTotalPages(url: URL, urlParams: Map<String, Any>?): Int {
         val pageSize = urlParams?.getOrDefault("pageSize", 80) as Int
-        val text = skraperClient.fetchDocument(url = url.toString())
+        val text = client.fetchDocument(url.withEncodedPath().toString())
             ?.selectFirst(MAIN_PAGE_TOTAL_POST_SELECTOR)
             ?.ownText() ?: "de 0"
 
@@ -172,7 +139,7 @@ class GallitoWebPageService(
     private fun getPosts(url: URL, pages: Int): Set<Post> {
         return (1..pages)
             .mapNotNull { page ->
-                skraperClient.fetchDocument(url.cloneAndReplace(query = "pag=${page}").toString())
+                client.fetchDocument(url.withEncodedPath().cloneAndReplace(query = "pag=${page}").toString())
                     ?.select(MAIN_PAGE_POST_SELECTOR)
                     ?.mapNotNull { ele ->
                         val link = ele.selectFirst(MAIN_PAGE_POST_LINK_SELECTOR)
@@ -189,6 +156,28 @@ class GallitoWebPageService(
             }
             .flatten()
             .toSet()
+    }
+
+    private fun extractHouseVideoLink(doc: Document) =
+        doc.selectFirst(RENTAL_PAGE_VIDEO_SELECTOR)
+            ?.attr("src")
+
+    private fun extractHouseLocation(doc: Document): Point? {
+        val attribute = doc.selectFirst(RENTAL_PAGE_GPS_SELECTOR)?.attr("src")
+        return if (attribute != null) {
+            val pointAsText = UriComponentsBuilder.fromUriString(attribute)
+                .build().queryParams.getFirst("q")
+                .orEmpty()
+
+            try {
+                Point.fromText(pointAsText)
+            } catch (e: Exception) {
+                logger.warn { "Error while parsing HTML document: cannot parse $pointAsText to Point(latitude, longitude)" }
+                null
+            }
+        } else {
+            null
+        }
     }
 
     private fun catalogFeatures(document: Document): Map<String, Any> {
@@ -258,42 +247,40 @@ class GallitoWebPageService(
         .mapNotNull { it.attr("href") }.toList()
 
     private fun extractHouseWarranties(doc: Document) = doc.select(RENTAL_PAGE_WARR_SELECTOR)
-        .mapNotNull { it.ownText()?.removeSurrounding(" ") }.toList()
+        .mapNotNull { it.ownText()?.trim() }.toList()
 
     private fun extractHouseDescription(doc: Document) = doc.select(RENTAL_PAGE_DESC_SELECTOR)
         .joinToString(" ") { ele ->
-            ele.ownText().removeSurrounding(" ")
-        }.removeSurrounding(" ")
+            ele.ownText().trim()
+        }.trim()
 
     private fun extractHouseNeighbourhood(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_NGH_SELECTOR)?.ownText()?.removeSurrounding(" ").orEmpty()
+        doc.selectFirst(RENTAL_PAGE_NGH_SELECTOR)?.ownText()?.trim().orEmpty()
 
     private fun extractHouseDepartment(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_DPT_SELECTOR)?.ownText()?.removeSurrounding(" ").orEmpty()
+        doc.selectFirst(RENTAL_PAGE_DPT_SELECTOR)?.ownText()?.trim().orEmpty()
 
     private fun extractHousePrice(doc: Document): Money {
-        return doc.selectFirst(RENTAL_PAGE_PRICE_SELECTOR)?.ownText()?.removeSurrounding(" ")
+        return doc.selectFirst(RENTAL_PAGE_PRICE_SELECTOR)?.ownText()?.trim()
             ?.let {
                 when {
                     it.startsWith("\$U ") -> it.replace("\$U", "UYU")
                     it.startsWith("U\$S") -> it.replace("U\$S", "USD")
-                    else -> throw IllegalArgumentException("Price expressed as: $it is invalid or unknown")
+                    else -> throw IllegalArgumentException("Error while parsing HTML document: cannot parse $it as currency")
                 }
             }?.toMoney() ?: Money.zero(Monetary.getCurrency("UYU"))
     }
 
-    private fun extractHousePhone(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_TLF_SELECTOR)?.attr("value")?.removeSurrounding(" ").orEmpty()
+    private fun extractHousePhone(doc: Document): String? =
+        doc.selectFirst(RENTAL_PAGE_TLF_SELECTOR)?.attr("value")?.trim()
 
     private fun extractHouseAddress(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_ADDRESS_SELECTOR)?.ownText()?.removeSurrounding(" ").orEmpty()
+        doc.selectFirst(RENTAL_PAGE_ADDRESS_SELECTOR)?.ownText()?.trim().orEmpty()
 
     private fun extractHouseTitle(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_TITLE_SELECTOR)?.ownText()?.removeSurrounding(" ").orEmpty()
+        doc.selectFirst(RENTAL_PAGE_TITLE_SELECTOR)?.ownText()?.trim().orEmpty()
 
     private fun extractHouseId(doc: Document) =
         doc.selectFirst(RENTAL_PAGE_ID_SELECTOR)?.attr("value")
-            ?.removeSurrounding(" ")?.let {
-                "$alias-$it"
-            }.orEmpty()
+            ?.trim().orEmpty()
 }

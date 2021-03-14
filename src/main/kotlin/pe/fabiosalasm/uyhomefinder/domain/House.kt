@@ -1,33 +1,46 @@
 package pe.fabiosalasm.uyhomefinder.domain
 
-import com.fasterxml.jackson.annotation.JsonIgnore
 import org.javamoney.moneta.Money
 import java.math.BigDecimal
-import javax.money.Monetary
 
 enum class StoreMode {
     MANUAL, AUTOMATIC
 }
 
+data class Point(
+    val latitude: Double,
+    val longitude: Double
+) {
+    companion object {
+        fun fromText(text: String): Point {
+            require(
+                """(-?\d{1,19}),(-?\d{1,19})""".toRegex().containsMatchIn(text)
+            ) { "cannot find a point in text: $text" }
+            val pointValues = text.split(",")
+            return Point(pointValues[0].toDouble(), pointValues[1].toDouble())
+        }
+    }
+}
+
 data class House(
-    var sourceId: String = "",
-    var title: String = "",
-    var link: String = "",
-    var address: String = "",
-    var telephone: String = "",
-    var price: Money = Money.zero(Monetary.getCurrency("UYU")),
-    var pictureLinks: List<String> = emptyList(),
-    var geoReference: String? = null,
-    var videoLink: String? = null,
-    var department: String = "",
-    var neighbourhood: String = "",
-    var description: String = "",
-    var features: Map<String, Any> = emptyMap(),
-    var warranties: List<String> = emptyList(),
-    var storeMode: StoreMode
+    val id: String,
+    val source: String,
+    val title: String,
+    val link: String,
+    val address: String,
+    val department: String,
+    val neighbourhood: String,
+    val description: String,
+    val telephone: String? = null,
+    val price: Money,
+    val pictureLinks: List<String> = emptyList(),
+    val videoLink: String? = null,
+    val features: Map<String, Any> = emptyMap(),
+    val warranties: List<String> = emptyList(),
+    val location: Point? = null,
+    val storeMode: StoreMode
 ) {
 
-    @JsonIgnore
     fun isLocatedInSafeNeighbourhood(): Boolean {
         return when (this.department) {
             "Montevideo" -> when (this.neighbourhood.toLowerCase()) {
@@ -40,6 +53,7 @@ data class House(
                 "paso de la arena",
                 "belvedere",
                 "la paloma",
+                "sayago",
                 "punta de rieles", "punta rieles" -> false
                 else -> true
             }
@@ -47,23 +61,19 @@ data class House(
         }
     }
 
-    @JsonIgnore
     fun isValid(): Boolean {
-        return this.sourceId.isNotEmpty()
+        return this.id.isNotEmpty()
             && this.title.isNotEmpty()
             && this.link.isNotEmpty()
             && this.address.isNotEmpty()
-            && this.telephone.isNotEmpty()
-            && this.price.numberStripped != BigDecimal.ZERO
+            && this.price.numberStripped > BigDecimal.ZERO
             && this.pictureLinks.isNotEmpty()
             && this.department.isNotEmpty()
             && this.neighbourhood.isNotEmpty()
             && this.description.isNotEmpty()
             && this.features.isNotEmpty()
-            && this.warranties.isNotEmpty()
     }
 
-    @JsonIgnore
     fun isNearByCapital(): Boolean {
         return when (this.department) {
             "Montevideo", "Canelones" -> true
@@ -71,12 +81,16 @@ data class House(
         }
     }
 
+    fun allowsPets(): Boolean {
+        return !this.description.contains("no mascotas")
+            && !this.description.contains("No mascotas")
+    }
+
     //https://stackoverflow.com/questions/55748235/kotlin-check-for-words-in-string
-    @JsonIgnore
     fun isAvailableForRental(): Boolean {
         val keywords = listOf(
             "alquilada", "alquilado",
-            " ALQUILADA",
+            "ALQUILADA",
             "ALQUILADO"
         )
 
@@ -84,14 +98,12 @@ data class House(
         return !rx.containsMatchIn(this.title)
     }
 
-    @JsonIgnore
     fun isForFamily(): Boolean {
         val keywords = listOf("masajista", "eróticas", "eróticos")
         val rx = Regex("\\b(?:${keywords.joinToString(separator = "|")})\\b")
         return !rx.containsMatchIn(this.title)
     }
 
-    @JsonIgnore
     fun hasAvailablePics(): Boolean {
         return this.pictureLinks
             .find { it.contains("img_nodisponible.jpg") }
