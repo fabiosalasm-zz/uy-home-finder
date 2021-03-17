@@ -1,5 +1,8 @@
 package pe.fabiosalasm.uyhomefinder.skraper
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
 import mu.KotlinLogging
 import org.javamoney.moneta.Money
 import org.springframework.web.util.UriComponentsBuilder
@@ -34,7 +37,7 @@ class MercadoLibreSkraper(
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun fetchHousesForRental(): Set<House> {
+    override fun fetchHousesForRental(): Set<House> = runBlocking {
         //TODO: Validate that URL template includes all url params
         val departments = when (urlParams!!["department"]) {
             is Map<*, *> -> {
@@ -47,7 +50,7 @@ class MercadoLibreSkraper(
             )
         }
 
-        return departments
+        departments
             .mapNotNull { department ->
                 val urlParamsCopy = HashMap(urlParams)
                 urlParamsCopy["department"] = department
@@ -70,50 +73,44 @@ class MercadoLibreSkraper(
                 logger.info { "Posts to analyze: ${posts.size}" }
 
                 posts
-                    .asSequence()
-                    .mapNotNull mapToHouseCandidate@{ postUrl ->
-                        val doc = client.fetchDocument(url = postUrl)
-                            .also {
-                                if (it == null)
-                                    logger.warn {
-                                        "Error while fetching page in url: $postUrl. No HTML content available"
-                                    }
-                            } ?: return@mapToHouseCandidate null
+                    .map { postUrl ->
+                        async {
+                            val doc = client.fetchDocument(url = postUrl)
+                                .also {
+                                    if (it == null)
+                                        logger.warn {
+                                            "Error while fetching page in url: $postUrl. No HTML content available"
+                                        }
+                                } ?: return@async null
 
-                        House(
-                            id = extractHouseId(postUrl).orEmpty(),
-                            source = name,
-                            title = extractHouseTitle(doc).orEmpty(),
-                            link = postUrl,
-                            address = extractHouseAddress(doc).orEmpty(),
-                            price = extractHousePrice(doc).orElse(Money.zero(Monetary.getCurrency("UYU"))),
-                            department = department.capitalize(),
-                            neighbourhood = extractHouseNeighbourhood(doc).orEmpty(),
-                            description = extractHouseDescription(doc).orEmpty(),
-                            features = catalogFeatures(doc),
-                            warranties = emptyList(), //warranties are ocasionally included in description and requires NLP to get fetched
-                            pictureLinks = extractHousePicLinks(doc),
-                            location = extractHouseLocation(doc),
-                            storeMode = StoreMode.AUTOMATIC
-                        )
+                            House(
+                                id = extractHouseId(postUrl).orEmpty(),
+                                source = name,
+                                title = extractHouseTitle(doc).orEmpty(),
+                                link = postUrl,
+                                address = extractHouseAddress(doc).orEmpty(),
+                                price = extractHousePrice(doc).orElse(Money.zero(Monetary.getCurrency("UYU"))),
+                                department = department.capitalize(),
+                                neighbourhood = extractHouseNeighbourhood(doc).orEmpty(),
+                                description = extractHouseDescription(doc).orEmpty(),
+                                features = catalogFeatures(doc),
+                                warranties = emptyList(), //warranties are ocasionally included in description and requires NLP to get fetched
+                                pictureLinks = extractHousePicLinks(doc),
+                                location = extractHouseLocation(doc),
+                                storeMode = StoreMode.AUTOMATIC
+                            )
+                        }
                     }
-                    .filter { house ->
-                        house.isValid()
-                            && house.isLocatedInSafeNeighbourhood()
-                            && house.isNearByCapital()
-                            && house.isAvailableForRental()
-                            && house.allowsPets()
-                            && house.isForFamily()
-                            && house.hasAvailablePics()
-                    }
+                    .awaitAll()
+                    .filterNotNull()
                     .toSet()
             }
             .flatten()
             .toSet()
     }
 
-    private fun getPosts(url: URL, pages: Int): Set<String> {
-        return (1..pages)
+    private fun getPosts(url: URL, pages: Int): Set<String> = runBlocking {
+        return@runBlocking (1..pages)
             .mapNotNull { page ->
                 // Pagination is done by overriding base URL with pagination info, but instead of having the common
                 // implementation of page=1,2,3...n, it's implemented as:
@@ -139,7 +136,7 @@ class MercadoLibreSkraper(
             .toSet()
     }
 
-    private fun calculateTotalPages(url: URL): Int? {
+    private fun calculateTotalPages(url: URL): Int? = runBlocking {
         val pageSize = 48
 
         val document = client.fetchDocument(url = url.withEncodedPath().toString())
@@ -148,10 +145,10 @@ class MercadoLibreSkraper(
                     logger.warn {
                         "Error while fetching page in url: $url. No HTML content available"
                     }
-            } ?: return null
+            } ?: return@runBlocking null
 
-        val count = extractTotalSearchResults(document) ?: return null
+        val count = extractTotalSearchResults(document) ?: return@runBlocking null
 
-        return ceil(count.div(pageSize)).toInt()
+        return@runBlocking ceil(count.div(pageSize)).toInt()
     }
 }

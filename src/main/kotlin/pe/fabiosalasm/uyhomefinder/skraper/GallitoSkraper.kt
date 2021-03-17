@@ -1,16 +1,32 @@
 package pe.fabiosalasm.uyhomefinder.skraper
-
+/**
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import mu.KotlinLogging
 import org.javamoney.moneta.Money
 import org.jsoup.nodes.Document
 import org.springframework.web.util.UriComponentsBuilder
 import pe.fabiosalasm.uyhomefinder.domain.House
-import pe.fabiosalasm.uyhomefinder.domain.Point
 import pe.fabiosalasm.uyhomefinder.domain.Post
 import pe.fabiosalasm.uyhomefinder.domain.StoreMode
 import pe.fabiosalasm.uyhomefinder.extensions.cloneAndReplace
+import pe.fabiosalasm.uyhomefinder.extensions.orElse
 import pe.fabiosalasm.uyhomefinder.extensions.toMoney
 import pe.fabiosalasm.uyhomefinder.extensions.withEncodedPath
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHouseAddress
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHouseDepartment
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHouseDescription
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHouseId
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHouseLocation
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHouseNeighbourhood
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHousePhone
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHousePicLinks
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHousePrice
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHouseTitle
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHouseVideoLink
+import pe.fabiosalasm.uyhomefinder.skraper.GallitoDocumentHelper.extractHouseWarranties
 import java.net.URL
 import javax.money.Monetary
 import kotlin.math.ceil
@@ -20,21 +36,12 @@ private const val MAIN_PAGE_POST_SELECTOR = "div.img-responsive.aviso-ico-contie
 private const val MAIN_PAGE_POST_LINK_SELECTOR = "img.img-seva.img-responsive"
 private const val MAIN_PAGE_GPS_SELECTOR = "span img[src='/img/gpsicon.png']"
 private const val MAIN_PAGE_VIDEO_SELECTOR = "span img[src='/img/camicon.png']"
-private const val RENTAL_PAGE_ID_SELECTOR = "input#HfCodigoAviso"
-private const val RENTAL_PAGE_TITLE_SELECTOR = "div#div_datosBasicos h1.titulo"
-private const val RENTAL_PAGE_ADDRESS_SELECTOR = "div#div_datosBasicos h2.direccion"
-private const val RENTAL_PAGE_TLF_SELECTOR = "input#HfTelefono"
-private const val RENTAL_PAGE_PRICE_SELECTOR = "div#div_datosBasicos div.wrapperFavorito span.precio"
-private const val RENTAL_PAGE_DPT_SELECTOR = "nav.breadcrumb-w100 li.breadcrumb-item:nth-child(5) a"
-private const val RENTAL_PAGE_NGH_SELECTOR = "nav.breadcrumb-w100 li.breadcrumb-item:nth-child(6) a"
-private const val RENTAL_PAGE_DESC_SELECTOR = "section#descripcion div.p-3 p"
+
 private const val RENTAL_PAGE_FEAT_SELECTOR =
     "section#caracteristicas div.p-3 ul#ul_caracteristicas li.list-group-item.border-0"
-private const val RENTAL_PAGE_WARR_SELECTOR = "section#garantias div.p-3 ul#ul_garantias li.list-group-item.border-0"
-private const val RENTAL_PAGE_GALLERY_SELECTOR = "div#galeria div.carousel-item.item a"
-private const val RENTAL_PAGE_GPS_SELECTOR = "div#ubicacion iframe#iframeMapa"
-private const val RENTAL_PAGE_VIDEO_SELECTOR = "div#video iframe#iframe_video"
+**/
 
+/**
 class GallitoSkraper(
     override val urlTemplate: URL,
     override val urlParams: Map<String, Any>?,
@@ -55,6 +62,7 @@ class GallitoSkraper(
     }
 
     override fun fetchHousesForRental(): Set<House> {
+        //TODO: Validate that URL template includes all url params
         val url = UriComponentsBuilder.fromUriString(urlTemplate.toString()).build()
             .expand(urlParams!!)
             .toUri().toURL()
@@ -62,6 +70,11 @@ class GallitoSkraper(
         logger.info { "Searching houses for rental: (host: ${url.host}, url: $url)" }
 
         val pages = calculateTotalPages(url, urlParams)
+        if (pages == null) {
+            logger.error { "Cannot complete scraping of '${url.host}': Cannot calculate total pages" }
+            return emptySet()
+        }
+
         logger.info { "Pages to cover: $pages" }
 
         val posts = getPosts(url, pages)
@@ -78,15 +91,15 @@ class GallitoSkraper(
                 )!!
 
                 House(
-                    id = extractHouseId(doc),
+                    id = extractHouseId(doc).orEmpty(),
                     source = name,
-                    title = extractHouseTitle(doc),
+                    title = extractHouseTitle(doc).orEmpty(),
                     link = post.link,
-                    address = extractHouseAddress(doc),
+                    address = extractHouseAddress(doc).orEmpty(),
                     telephone = extractHousePhone(doc),
-                    price = extractHousePrice(doc),
-                    department = extractHouseDepartment(doc),
-                    neighbourhood = extractHouseNeighbourhood(doc),
+                    price = extractHousePrice(doc).orElse(Money.zero(Monetary.getCurrency("UYU"))),
+                    department = extractHouseDepartment(doc).orEmpty(),
+                    neighbourhood = extractHouseNeighbourhood(doc).orEmpty(),
                     description = extractHouseDescription(doc),
                     features = catalogFeatures(doc),
                     warranties = extractHouseWarranties(doc),
@@ -124,62 +137,61 @@ class GallitoSkraper(
      * Objective:
      * Fetch the total of posts and divide it with the posts per page (const)
      */
-    private fun calculateTotalPages(url: URL, urlParams: Map<String, Any>?): Int {
+    private fun calculateTotalPages(url: URL, urlParams: Map<String, Any>?): Int? = runBlocking {
         val pageSize = urlParams?.getOrDefault("pageSize", 80) as Int
-        val text = client.fetchDocument(url.withEncodedPath().toString())
+
+        val textSearchText = client.fetchDocument(url.withEncodedPath().toString())
             ?.selectFirst(MAIN_PAGE_TOTAL_POST_SELECTOR)
-            ?.ownText() ?: "de 0"
+            ?.ownText()
+            .also {
+                if (it == null)
+                    logger.warn { "Error while extracting total pages available: cannot find info using css query: $MAIN_PAGE_TOTAL_POST_SELECTOR" }
+            } ?: return@runBlocking null
 
-        //TODO: make this code dont assume array size and cast
-        val count = text.split(" ")[1].toDouble()
+        val count = """de (\d{1,10})""".toRegex().find(textSearchText)
+            ?.groupValues?.get(1)?.toDouble()
+            .also {
+                if (it == null)
+                    logger.warn { "Error while extracting total pages available: cannot parse text '$textSearchText'" }
+            } ?: return@runBlocking null
 
-        return ceil(count.div(pageSize)).toInt() //TODO: evaluate when count < size
+        ceil(count.div(pageSize)).toInt()
     }
 
     private fun getPosts(url: URL, pages: Int): Set<Post> {
         return (1..pages)
-            .mapNotNull { page ->
-                client.fetchDocument(url.withEncodedPath().cloneAndReplace(query = "pag=${page}").toString())
-                    ?.select(MAIN_PAGE_POST_SELECTOR)
-                    ?.mapNotNull { ele ->
-                        val link = ele.selectFirst(MAIN_PAGE_POST_LINK_SELECTOR)
-                            ?.attr("alt")
+            .mapNotNull PostSelector@{ page ->
+                val document =
+                    client.fetchDocument(url.cloneAndReplace(query = "pag=${page}").withEncodedPath().toString())
+                        .also {
+                            if (it == null)
+                                logger.warn {
+                                    "Error while fetching page in url: $url. No HTML content available"
+                                }
+                        } ?: return@PostSelector null
 
-                        if (link == null) {
-                            null
-                        } else {
-                            val hasGPS = ele.selectFirst(MAIN_PAGE_GPS_SELECTOR) != null
-                            val hasVideo = ele.selectFirst(MAIN_PAGE_VIDEO_SELECTOR) != null
-                            Post(link, hasGPS, hasVideo)
-                        }
+
+                document.select(MAIN_PAGE_POST_SELECTOR)
+                    .mapNotNull LinkSelector@{ element ->
+                        val link = element.selectFirst(MAIN_PAGE_POST_LINK_SELECTOR)
+                            ?.attr("alt")
+                            .also {
+                                if (it == null)
+                                    logger.warn {
+                                        "Error while extracting post link. Cannot find css query: $MAIN_PAGE_POST_LINK_SELECTOR"
+                                    }
+                            } ?: return@LinkSelector null
+
+                        val hasGPS = element.selectFirst(MAIN_PAGE_GPS_SELECTOR) != null
+                        val hasVideo = element.selectFirst(MAIN_PAGE_VIDEO_SELECTOR) != null
+                        Post(link, hasGPS, hasVideo)
                     }
             }
             .flatten()
             .toSet()
     }
 
-    private fun extractHouseVideoLink(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_VIDEO_SELECTOR)
-            ?.attr("src")
-
-    private fun extractHouseLocation(doc: Document): Point? {
-        val attribute = doc.selectFirst(RENTAL_PAGE_GPS_SELECTOR)?.attr("src")
-        return if (attribute != null) {
-            val pointAsText = UriComponentsBuilder.fromUriString(attribute)
-                .build().queryParams.getFirst("q")
-                .orEmpty()
-
-            try {
-                Point.fromText(pointAsText)
-            } catch (e: Exception) {
-                logger.warn { "Error while parsing HTML document: cannot parse $pointAsText to Point(latitude, longitude)" }
-                null
-            }
-        } else {
-            null
-        }
-    }
-
+    //TODO: implement function similar to Mercadolibre
     private fun catalogFeatures(document: Document): Map<String, Any> {
         val result = mutableMapOf<String, Any>()
         val extras = mutableListOf<String>()
@@ -242,45 +254,4 @@ class GallitoSkraper(
 
         return result
     }
-
-    private fun extractHousePicLinks(doc: Document) = doc.select(RENTAL_PAGE_GALLERY_SELECTOR)
-        .mapNotNull { it.attr("href") }.toList()
-
-    private fun extractHouseWarranties(doc: Document) = doc.select(RENTAL_PAGE_WARR_SELECTOR)
-        .mapNotNull { it.ownText()?.trim() }.toList()
-
-    private fun extractHouseDescription(doc: Document) = doc.select(RENTAL_PAGE_DESC_SELECTOR)
-        .joinToString(" ") { ele ->
-            ele.ownText().trim()
-        }.trim()
-
-    private fun extractHouseNeighbourhood(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_NGH_SELECTOR)?.ownText()?.trim().orEmpty()
-
-    private fun extractHouseDepartment(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_DPT_SELECTOR)?.ownText()?.trim().orEmpty()
-
-    private fun extractHousePrice(doc: Document): Money {
-        return doc.selectFirst(RENTAL_PAGE_PRICE_SELECTOR)?.ownText()?.trim()
-            ?.let {
-                when {
-                    it.startsWith("\$U ") -> it.replace("\$U", "UYU")
-                    it.startsWith("U\$S") -> it.replace("U\$S", "USD")
-                    else -> throw IllegalArgumentException("Error while parsing HTML document: cannot parse $it as currency")
-                }
-            }?.toMoney() ?: Money.zero(Monetary.getCurrency("UYU"))
-    }
-
-    private fun extractHousePhone(doc: Document): String? =
-        doc.selectFirst(RENTAL_PAGE_TLF_SELECTOR)?.attr("value")?.trim()
-
-    private fun extractHouseAddress(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_ADDRESS_SELECTOR)?.ownText()?.trim().orEmpty()
-
-    private fun extractHouseTitle(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_TITLE_SELECTOR)?.ownText()?.trim().orEmpty()
-
-    private fun extractHouseId(doc: Document) =
-        doc.selectFirst(RENTAL_PAGE_ID_SELECTOR)?.attr("value")
-            ?.trim().orEmpty()
-}
+} **/

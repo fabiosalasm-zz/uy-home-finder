@@ -1,5 +1,6 @@
 package pe.fabiosalasm.uyhomefinder.skraper
 
+/**
 import mu.KotlinLogging
 import org.javamoney.moneta.Money
 import org.jsoup.nodes.Document
@@ -253,4 +254,4 @@ class InfocasasSkraper(
             .flatten()
             .toSet()
     }
-}
+} **/

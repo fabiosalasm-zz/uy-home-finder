@@ -33,6 +33,7 @@ extra["kotestVersion"] = "4.3.2"
 extra["jsoupVersion"] = "1.13.1"
 extra["datasourceDecoratorVersion"] = "1.6.3"
 extra["kotlinLoggingVersion"] = "1.12.0"
+extra["coroutinesVersion"] = "1.4.3"
 
 dependencyManagement {
     imports {
@@ -45,7 +46,11 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-web")
+
     implementation("org.springframework.boot:spring-boot-starter-webflux")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${property("coroutinesVersion")}")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:${property("coroutinesVersion")}")
+
     kapt("org.springframework.boot:spring-boot-configuration-processor")
 
     runtimeOnly("org.postgresql:postgresql")

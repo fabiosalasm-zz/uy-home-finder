@@ -6,8 +6,8 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
 import org.springframework.web.reactive.function.client.WebClient
 import pe.fabiosalasm.uyhomefinder.properties.AppProperties
-import pe.fabiosalasm.uyhomefinder.skraper.GallitoSkraper
-import pe.fabiosalasm.uyhomefinder.skraper.InfocasasSkraper
+//import pe.fabiosalasm.uyhomefinder.skraper.GallitoSkraper
+//import pe.fabiosalasm.uyhomefinder.skraper.InfocasasSkraper
 import pe.fabiosalasm.uyhomefinder.skraper.MercadoLibreSkraper
 import pe.fabiosalasm.uyhomefinder.skraper.Skraper
 import pe.fabiosalasm.uyhomefinder.skraper.SkraperClient
@@ -22,6 +22,7 @@ class SkraperConfig(private val appProperties: AppProperties) {
         return SpringReactiveSkraperClient(webClient)
     }
 
+    /**
     @Bean
     fun gallitoSkraper(skraperClient: SkraperClient, objectMapper: ObjectMapper): Skraper {
         require(appProperties.skrapers.containsKey("gallito")) {
@@ -34,8 +35,9 @@ class SkraperConfig(private val appProperties: AppProperties) {
             urlParams = props.urlParams,
             client = skraperClient
         )
-    }
+    } **/
 
+    /**
     @Bean
     fun infocasasSkraper(skraperClient: SkraperClient, objectMapper: ObjectMapper): Skraper {
         require(appProperties.skrapers.containsKey("infocasas")) {
@@ -48,7 +50,7 @@ class SkraperConfig(private val appProperties: AppProperties) {
             urlParams = props.urlParams,
             client = skraperClient
         )
-    }
+    } **/
 
     @Bean
     fun mercadolibreSkraper(skraperClient: SkraperClient, objectMapper: ObjectMapper): Skraper {

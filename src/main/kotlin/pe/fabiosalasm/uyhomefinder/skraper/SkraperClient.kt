@@ -1,10 +1,10 @@
 package pe.fabiosalasm.uyhomefinder.skraper
 
+import kotlinx.coroutines.reactive.awaitFirst
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
-import org.springframework.core.io.ByteArrayResource
 import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.function.client.bodyToMono
+import org.springframework.web.reactive.function.client.toEntity
 import reactor.util.retry.Retry
 import java.net.URI
 import java.time.Duration
@@ -19,13 +19,13 @@ enum class HttpMethodType {
 
 //TODO: Handle properly for null cases
 interface SkraperClient {
-    fun request(
+    suspend fun request(
         url: String,
         method: HttpMethodType = HttpMethodType.GET,
         headers: Map<String, String> = mapOf("User-Agent" to DEFAULT_USER_AGENT)
     ): ByteArray?
 
-    fun fetchDocument(
+    suspend fun fetchDocument(
         url: String,
         method: HttpMethodType = HttpMethodType.GET,
         headers: Map<String, String> = mapOf("User-Agent" to DEFAULT_USER_AGENT),
@@ -48,14 +48,13 @@ interface SkraperClient {
 
 //TODO: only works for GET http requests
 class SpringReactiveSkraperClient(private val webClient: WebClient) : SkraperClient {
-    override fun request(url: String, method: HttpMethodType, headers: Map<String, String>): ByteArray? {
+    override suspend fun request(url: String, method: HttpMethodType, headers: Map<String, String>): ByteArray? {
         return webClient.get()
             .uri(URI(url))
             .headers { headers.forEach { (k, v) -> it[k] = v } }
             .retrieve()
-            .bodyToMono<ByteArrayResource>()
+            .toEntity<ByteArray>()
             .retryWhen(Retry.fixedDelay(3, Duration.ofSeconds(2))) //TODO: improve retry strategy?
-            .map { it.byteArray }
-            .block()
+            .awaitFirst().body
     }
 }
