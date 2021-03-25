@@ -22,13 +22,16 @@ object GallitoDocumentHelper {
     private const val RENTAL_PAGE_GALLERY_SELECTOR = "div#galeria div.carousel-item.item a"
     private const val RENTAL_PAGE_GPS_SELECTOR = "div#ubicacion iframe#iframeMapa"
     private const val RENTAL_PAGE_VIDEO_SELECTOR = "div#video iframe#iframe_video"
+    private const val RENTAL_PAGE_FEAT_SELECTOR =
+        "section#caracteristicas div.p-3 ul#ul_caracteristicas li.list-group-item.border-0"
+    private const val TEST = "div.wrapperDatos div.iconoDatos.rounded-circle i.fas.fa-bed"
 
     fun extractHouseId(doc: Document) =
         doc.selectFirst(RENTAL_PAGE_ID_SELECTOR)?.attr("value")
             ?.trim()
             .also {
                 if (it == null)
-                    logger.warn { "Error while extracting id from post URL: Cannot find id in $RENTAL_PAGE_ID_SELECTOR" }
+                    logger.warn { "Error while extracting id from post URL: Cannot find id in '$RENTAL_PAGE_ID_SELECTOR'" }
             }
 
     fun extractHouseTitle(doc: Document) =
@@ -36,7 +39,7 @@ object GallitoDocumentHelper {
             .also {
                 if (it == null)
                     logger.warn {
-                        "Error while extracting house title: Cannot find info using css query: $RENTAL_PAGE_TITLE_SELECTOR"
+                        "Error while extracting house title: Cannot find info using css query: '$RENTAL_PAGE_TITLE_SELECTOR'"
                     }
             }
 
@@ -45,7 +48,7 @@ object GallitoDocumentHelper {
             .also {
                 if (it == null)
                     logger.warn {
-                        "Error while extracting house address: Cannot find info using css query: $RENTAL_PAGE_ADDRESS_SELECTOR"
+                        "Error while extracting house address: Cannot find info using css query: '$RENTAL_PAGE_ADDRESS_SELECTOR'"
                     }
             }
 
@@ -54,7 +57,7 @@ object GallitoDocumentHelper {
             .also {
                 if (it == null)
                     logger.warn {
-                        "Error while extracting house phone: Cannot find info using css query: $RENTAL_PAGE_TLF_SELECTOR"
+                        "Error while extracting house phone: Cannot find info using css query: '$RENTAL_PAGE_TLF_SELECTOR'"
                     }
             }
 
@@ -63,7 +66,7 @@ object GallitoDocumentHelper {
             .also {
                 if (it == null)
                     logger.warn {
-                        "Error while extracting house price: Cannot find currency using css query: $RENTAL_PAGE_PRICE_SELECTOR"
+                        "Error while extracting house price: Cannot find currency using css query: '$RENTAL_PAGE_PRICE_SELECTOR'"
                     }
             } ?: return null
 
@@ -91,7 +94,7 @@ object GallitoDocumentHelper {
             .also {
                 if (it == null)
                     logger.warn {
-                        "Error while extracting house department: Cannot find css query: $RENTAL_PAGE_DPT_SELECTOR"
+                        "Error while extracting house department: Cannot find css query: '$RENTAL_PAGE_DPT_SELECTOR'"
                     }
             }
 
@@ -100,17 +103,17 @@ object GallitoDocumentHelper {
             .also {
                 if (it == null)
                     logger.warn {
-                        "Error while extracting house neighbourhood: Cannot find css query: $RENTAL_PAGE_NGH_SELECTOR"
+                        "Error while extracting house neighbourhood: Cannot find css query: '$RENTAL_PAGE_NGH_SELECTOR'"
                     }
             }
 
     fun extractHouseDescription(doc: Document): String {
         return doc.select(RENTAL_PAGE_DESC_SELECTOR)
-            .joinToString(" ") { ele -> ele.ownText().trim() }.trim()
+            .joinToString(" ") { ele -> ele.wholeText().trim() }.trim()
             .also {
                 if (it.isEmpty())
                     logger.warn {
-                        "Error while extracting house description: Cannot find css query: $RENTAL_PAGE_DESC_SELECTOR or there is no content"
+                        "Error while extracting house description: Cannot find css query: '$RENTAL_PAGE_DESC_SELECTOR' or there is no content"
                     }
             }
     }
@@ -142,4 +145,63 @@ object GallitoDocumentHelper {
     fun extractHouseVideoLink(doc: Document) =
         doc.selectFirst(RENTAL_PAGE_VIDEO_SELECTOR)
             ?.attr("src")
+
+    fun catalogFeatures(document: Document): Map<String, Any> {
+        val features = document.select(RENTAL_PAGE_FEAT_SELECTOR)
+            .mapNotNull { it.ownText() }
+            .mapNotNull { rawFeature ->
+                when {
+                    """Padrón: \w+""".toRegex().containsMatchIn(rawFeature) -> {
+                        "register" to rawFeature.removePrefix("Padrón: ")
+                    }
+                    """Estado: \w+""".toRegex().containsMatchIn(rawFeature) -> {
+                        "buildingState" to rawFeature.removePrefix("Estado: ")
+                    }
+                    """(\d) (Baño[s]?)""".toRegex().containsMatchIn(rawFeature) -> {
+                        "numberBathrooms" to ("""(\d) (Baño[s]?)""".toRegex().find(rawFeature)!!
+                            .groupValues[1].toInt())
+                    }
+                    rawFeature == "Cocina" || rawFeature == "Kitchenette" -> {
+                        "hasKitchen" to true
+                    }
+                    """Techo: \w+""".toRegex().containsMatchIn(rawFeature) -> {
+                        "roofType" to rawFeature.removePrefix("Techo: ")
+                    }
+                    """(Sup. construida:) (\d{1,5})m²""".toRegex().containsMatchIn(rawFeature) -> {
+                        "houseSqMeters" to """(Sup. construida:) (\d{1,5})m²""".toRegex().find(rawFeature)!!
+                            .groupValues[2].toInt()
+                    }
+                    """Gastos Comunes: \$(U\d+)""".toRegex().containsMatchIn(rawFeature) -> {
+                        "commonExpenses" to ("""Gastos Comunes: \$(U\d+)""".toRegex().find(rawFeature)!!
+                            .groupValues[1].replace("U", "UYU ") // polishing string to cast it into money
+                            .toMoney())
+                    }
+                    """(Año:) (\d+)""".toRegex().containsMatchIn(rawFeature) -> {
+                        "constructionYear" to ("""(Año:) (\d+)""".toRegex().find(rawFeature)!!
+                            .groupValues[2].toInt())
+                    }
+                    """(Cantidad de plantas:) (\d+)""".toRegex().containsMatchIn(rawFeature) -> {
+                        "numberFloors" to ("""(Cantidad de plantas:) (\d+)""".toRegex().find(rawFeature)!!
+                            .groupValues[2].toInt())
+                    }
+                    rawFeature == "Baño social" || rawFeature == "Baño de Servicio" -> "hasVisitBathroom" to true
+                    rawFeature == "Aire aconodicionado" -> "hasAirConditioner" to true
+                    else -> null
+                }
+            }
+            .distinct()
+            .toMap().toMutableMap()
+
+        val bedroomFeature = document.selectFirst(TEST)
+            ?.parent()
+            ?.nextElementSibling()
+            ?.ownText()
+
+        if (bedroomFeature != null && """(más de )?(\d) dormitorios""".toRegex().containsMatchIn(bedroomFeature)) {
+            features["numberBedrooms"] =
+                """(más de )?(\d) dormitorios""".toRegex().find(bedroomFeature)!!.groupValues[2].toInt()
+        }
+
+        return features
+    }
 }

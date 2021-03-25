@@ -11,7 +11,7 @@ data class AppProperties(
 ) {
     data class SkraperProperty(
         val urlTemplate: URL,
-        val urlParams: Map<String, Any>?
+        val urlParams: Map<String, String>?
     )
 }
 

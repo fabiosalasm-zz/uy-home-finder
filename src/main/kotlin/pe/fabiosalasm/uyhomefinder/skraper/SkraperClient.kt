@@ -1,10 +1,12 @@
 package pe.fabiosalasm.uyhomefinder.skraper
 
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.reactive.awaitFirst
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.toEntity
+import reactor.core.scheduler.Scheduler
 import reactor.util.retry.Retry
 import java.net.URI
 import java.time.Duration
@@ -17,8 +19,10 @@ enum class HttpMethodType {
     POST
 }
 
-//TODO: Handle properly for null cases
 interface SkraperClient {
+    val webClient: WebClient
+    val scheduler: Scheduler
+
     suspend fun request(
         url: String,
         method: HttpMethodType = HttpMethodType.GET,
@@ -46,15 +50,18 @@ interface SkraperClient {
     }
 }
 
-//TODO: only works for GET http requests
-class SpringReactiveSkraperClient(private val webClient: WebClient) : SkraperClient {
-    override suspend fun request(url: String, method: HttpMethodType, headers: Map<String, String>): ByteArray? {
-        return webClient.get()
+class SpringReactiveSkraperClient(
+    override val webClient: WebClient,
+    override val scheduler: Scheduler
+    ) : SkraperClient {
+    override suspend fun request(url: String, method: HttpMethodType, headers: Map<String, String>): ByteArray?  = coroutineScope {
+        webClient.get()
             .uri(URI(url))
             .headers { headers.forEach { (k, v) -> it[k] = v } }
             .retrieve()
             .toEntity<ByteArray>()
-            .retryWhen(Retry.fixedDelay(3, Duration.ofSeconds(2))) //TODO: improve retry strategy?
+            .retryWhen(Retry.fixedDelay(3, Duration.ofSeconds(2)))
+            .publishOn(scheduler)
             .awaitFirst().body
     }
 }

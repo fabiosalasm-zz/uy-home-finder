@@ -16,9 +16,10 @@ object MercadoLibreDocumentHelper {
     private const val CURRENCY_CSS_QUERY = "span.price-tag-symbol"
     private const val AMOUNT_CSS_QUERY = "span.price-tag-fraction"
     private const val NEIGHBOURHOOD_CSS_QUERY = "ul.vip-navigation-breadcrumb-list li:nth-child(5) a span"
+    private const val DEPARTMENT_CSS_QUERY = "ul.vip-navigation-breadcrumb-list li:nth-child(4) a span"
     private const val DESCRIPTION_CSS_QUERY = "div.item-description__text p"
     private const val PIC_CSS_QUERY = "label.gallery__thumbnail img"
-    private const val URL_PATTERN = """(https://casa.mercadolibre.com.uy/MLU-)(\d{2,13})(-\w+)"""
+    private const val URL_PATTERN = """(https://casa.mercadolibre.com.uy/MLU-)(\d{2,13})(\S+)"""
     private const val TOTAL_SEARCH_RESULTS_CSS_QUERY = "span.ui-search-search-result__quantity-results"
     private const val POST_LINK_CSS_QUERY = "a.ui-search-result__content.ui-search-link"
 
@@ -98,6 +99,16 @@ object MercadoLibreDocumentHelper {
             }
     }
 
+    fun extractHouseDepartment(doc: Document): String? {
+        return doc.selectFirst(DEPARTMENT_CSS_QUERY)?.text()?.trim()
+            .also {
+                if (it == null)
+                    logger.warn {
+                        "Error while extracting house department: Cannot find css query: $DEPARTMENT_CSS_QUERY"
+                    }
+            }
+    }
+
     fun extractHouseDescription(doc: Document): String? {
         return doc.selectFirst(DESCRIPTION_CSS_QUERY)?.text()?.trim()
             .also {
@@ -166,12 +177,38 @@ object MercadoLibreDocumentHelper {
             }
     }
 
-    fun extractPostLink(doc: Document): Set<String> {
+    //TODO: return Set<URL>
+    fun extractPostUrls(doc: Document): Set<String> {
         return doc.select(POST_LINK_CSS_QUERY)
             .mapNotNull { element ->
-                // posts link usually include additional info for tracking purpose, we can remove that
-                element.attr("href").replace("""JM#\S+""".toRegex(), "JM")
-                //TODO: Ensure text extracted is an actual link
+                // need to remove tracking information comming from links
+                val link = element.attr("href").replace("""JM#\S+""".toRegex(), "JM") + "?redirectFromSimilar=true"
+                val location = element.selectFirst("span.ui-search-item__group__element.ui-search-item__location")
+                    ?.ownText()
+                    ?: return@mapNotNull null
+
+                val locationSplitted = location.split(", ")
+                if (locationSplitted.size != 3) {
+                    return@mapNotNull null
+                }
+
+                // filter similar to House.isNearByCapital
+                return@mapNotNull when (locationSplitted[2].trim()) { // department
+                    "Montevideo" -> link
+                    "Canelones" -> when (locationSplitted[1].trim()) { // neighbourhood
+                        "Aeropuerto Internacional De Carrasco",
+                        "Barra de Carrasco", "Ciudad de la costa",
+                        "Lomas de Solymar", "Colinas de Solymar",
+                        "El Pinar", "General Líber Seregni",
+                        "Lagomar", "La Paz", "Médanos de Solymar",
+                        "Montes de Solymar", "Parque de Solymar",
+                        "Paso de Carrasco", "San José de Carrasco",
+                        "Shangrilá", "Solymar",
+                        -> link
+                        else -> null
+                    }
+                    else -> null
+                }
             }
             .toSet()
     }
@@ -295,10 +332,7 @@ object MercadoLibreDocumentHelper {
                                     }
                             }
                     }
-                    else -> {
-                        logger.warn { "Ignoring feature: $key -> $value" }
-                        null
-                    }
+                    else -> null
                 }
             }
             .distinct()
@@ -306,7 +340,7 @@ object MercadoLibreDocumentHelper {
 
         val additionalFeatures = doc.select("ul.attribute-list li")
             .mapNotNull { element ->
-                when (val key = element.ownText().trim()) {
+                when (element.ownText().trim()) {
                     "Placards" -> "hasWardrobe" to true
                     "Cocina" -> "hasKitchen" to true
                     "Baño social" -> "hasVisitBathroom" to true
@@ -323,10 +357,7 @@ object MercadoLibreDocumentHelper {
                     "seguridad 24 horas" -> "has247Security" to true
                     "Piscina" -> "hasPool" to true
                     "Calefacción" -> "hasHeatingSystem" to true
-                    else -> {
-                        logger.warn { "Ignoring feature: $key -> ${true}" }
-                        null
-                    }
+                    else -> null
                 }
             }
             .distinct()

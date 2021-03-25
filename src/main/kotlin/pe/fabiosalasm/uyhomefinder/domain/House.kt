@@ -76,7 +76,19 @@ data class House(
 
     fun isNearByCapital(): Boolean {
         return when (this.department) {
-            "Montevideo", "Canelones" -> true
+            "Montevideo" -> true
+            "Canelones" -> when (this.neighbourhood) {
+                "Aeropuerto Internacional De Carrasco",
+                "Barra de Carrasco", "Ciudad de la costa",
+                "Lomas de Solymar", "Colinas de Solymar",
+                "El Pinar", "General Líber Seregni",
+                "Lagomar", "La Paz", "Médanos de Solymar",
+                "Montes de Solymar", "Parque de Solymar",
+                "Paso de Carrasco", "San José de Carrasco",
+                "Shangrilá", "Solymar",
+                -> true
+                else -> false
+            }
             else -> false
         }
     }

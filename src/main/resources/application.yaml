@@ -10,9 +10,8 @@ spring:
 logging:
   level:
     org.javamoney: OFF
-    com.gargoylesoftware.htmlunit: DEBUG
   pattern:
-    console: "%clr(%d{${LOG_DATEFORMAT_PATTERN:-yyyy-MM-dd HH:mm:ss.SSS}}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%25.25t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"
+    console: "%clr(%d{${LOG_DATEFORMAT_PATTERN:-yyyy-MM-dd HH:mm:ss.SSS}}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%25.25t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %clr(%mdc){cyan} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"
 decorator:
   datasource:
     datasource-proxy:
@@ -30,17 +29,14 @@ app:
         pageSize: 80
         minSquareMeter: 75
     infocasas:
-      url-template: "https://www.infocasas.com.uy/alquiler/casas/{department}/desde-{minPrice}/hasta-{maxPrice}/dolares/m2-desde-{minSquareMeter}/edificados"
+      url-template: "https://www.infocasas.com.uy/alquiler/casas/desde-{minPrice}/hasta-{maxPrice}/dolares/m2-desde-{minSquareMeter}/edificados"
       url-params:
         minPrice: 400
         maxPrice: 1000
-        department: ["montevideo", "canelones"]
         minSquareMeter: 75
     mercadolibre:
-      url-template: "https://listado.mercadolibre.com.uy/inmuebles/casas/alquiler/{department}/_PriceRange_{minPrice}UYU-{maxPrice}UYU_TOTAL*AREA_{minSquareMeter}m²-*"
+      url-template: "https://listado.mercadolibre.com.uy/inmuebles/casas/alquiler/_PriceRange_{minPrice}UYU-{maxPrice}UYU_TOTAL*AREA_{minSquareMeter}m²-*"
       url-params:
-        department: ["montevideo"] # TODO: ADD canelones
         minPrice: 18000
         maxPrice: 35000
         minSquareMeter: 75
-

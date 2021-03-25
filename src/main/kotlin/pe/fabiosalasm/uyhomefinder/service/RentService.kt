@@ -1,5 +1,6 @@
 package pe.fabiosalasm.uyhomefinder.service
 
+import kotlinx.coroutines.runBlocking
 import mu.KotlinLogging
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -19,7 +20,9 @@ class RentService(
 
     fun importHousesFromAllSkrapers() {
         skrapers.forEach { skraper ->
-            val houses = skraper.fetchHousesForRental()
+            val houses = runBlocking {
+                skraper.fetchHousesForRental()
+            }
             if (houses.isNotEmpty()) {
                 logger.info { "Got ${houses.size} house candidates to save" }
                 houseCandidateRepository.cleanAndSave(skraper.name, houses)
@@ -34,7 +37,9 @@ class RentService(
         val skraper = skrapers.find { skraperName == it.name }
             ?: throw IllegalArgumentException("$skraperName not exists")
 
-        val houses = skraper.fetchHousesForRental()
+        val houses = runBlocking {
+            skraper.fetchHousesForRental()
+        }
         if (houses.isNotEmpty()) {
             logger.info { "Got ${houses.size} house candidates to save" }
             houseCandidateRepository.cleanAndSave(skraperName, houses)
